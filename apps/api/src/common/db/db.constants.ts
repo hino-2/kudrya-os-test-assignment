@@ -1,5 +1,20 @@
 import type { MixedList } from 'typeorm';
 
+import { ProductEntity } from '../../catalog/entities/product.entity';
+import { SkuStockEntity } from '../../catalog/entities/sku-stock.entity';
+import { DeliveryAttemptEntity } from '../../delivery/entities/delivery-attempt.entity';
+import { IssuedDeliveryEntity } from '../../delivery/entities/issued-delivery.entity';
+import { StockKeyEntity } from '../../inventory/entities/stock-key.entity';
+import { JobEntity } from '../../jobs/entities/job.entity';
+import { LedgerEntryEntity } from '../../ledger/entities/ledger-entry.entity';
+import { LedgerTxnEntity } from '../../ledger/entities/ledger-txn.entity';
+import { InitCore1756600000001 } from '../../migrations/1756600000001-InitCore';
+import { InitPayments1756600000002 } from '../../migrations/1756600000002-InitPayments';
+import { InitDelivery1756600000003 } from '../../migrations/1756600000003-InitDelivery';
+import { InitJobs1756600000004 } from '../../migrations/1756600000004-InitJobs';
+import { OrderEntity } from '../../orders/entities/order.entity';
+import { PaymentEventEntity } from '../../payments/entities/payment-event.entity';
+
 export const PG_ERROR_CODE = {
   UNIQUE_VIOLATION: '23505',
   FOREIGN_KEY_VIOLATION: '23503',
@@ -28,9 +43,25 @@ export const DB_CONNECT_RETRY_DELAY_MS = 1000;
 export const DB_APPLICATION_NAME = 'store-api';
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- зеркалит сигнатуру MixedList<Function> из typeorm
-export const ENTITIES: MixedList<Function> = [];
+export const ENTITIES: MixedList<Function> = [
+  ProductEntity,
+  SkuStockEntity,
+  StockKeyEntity,
+  OrderEntity,
+  PaymentEventEntity,
+  LedgerTxnEntity,
+  LedgerEntryEntity,
+  DeliveryAttemptEntity,
+  IssuedDeliveryEntity,
+  JobEntity,
+];
 
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- зеркалит сигнатуру MixedList<Function> из typeorm
-export const MIGRATIONS: MixedList<Function> = [];
+export const MIGRATIONS: MixedList<Function> = [
+  InitCore1756600000001,
+  InitPayments1756600000002,
+  InitDelivery1756600000003,
+  InitJobs1756600000004,
+];
 
 export const MIGRATIONS_TABLE_NAME = 'migrations';
