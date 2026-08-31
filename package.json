@@ -1,0 +1,47 @@
+{
+  "name": "kudrya-os-test-assignment",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ядро магазина цифровых товаров для геймеров",
+  "author": "i.am@igor-ushakov.ru",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/supplier-stub",
+    "tools"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "npm run -ws typecheck",
+    "build": "npm run -ws build",
+    "test:unit": "npm run -w apps/api test:unit && npm run -w apps/supplier-stub test",
+    "test:integration": "npm run -w apps/api test:integration",
+    "test": "npm run test:unit && npm run test:integration",
+    "migration:run": "npm run -w apps/api migration:run",
+    "migration:revert": "npm run -w apps/api migration:revert",
+    "seed:catalog": "tsx tools/src/seed-catalog.ts",
+    "seed:bench": "tsx tools/src/seed-bench.ts",
+    "bench:explain": "tsx tools/src/bench-explain.ts",
+    "race": "tsx tools/src/race.ts",
+    "webhook": "tsx tools/src/webhook.ts",
+    "demo:fallback": "tsx tools/src/demo-fallback.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@nestjs/testing": "^12.0.1",
+    "@swc/core": "^1.16.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.13.1",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.68.0",
+    "unplugin-swc": "^1.5.11",
+    "vitest": "^4.1.11"
+  }
+}

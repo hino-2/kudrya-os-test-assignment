@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: store
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d store']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-core:local
+    command: ['node', 'apps/api/dist/main.js']
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/store
+      SUPPLIER_A_BASE_URL: http://supplier-a:4001
+      SUPPLIER_B_BASE_URL: http://supplier-b:4002
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+      ADMIN_TOKEN: dev-admin-token
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  supplier-a:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-core:local
+    command: ['node', 'apps/supplier-stub/dist/main.js']
+    ports:
+      - '4001:4001'
+    environment:
+      SUPPLIER_ID: A
+      PORT: 4001
+      STUB_FAIL_RATE: 0.2
+      STUB_TIMEOUT_RATE: 0.2
+      STUB_SLOW_RATE: 0.3
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+
+  supplier-b:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: store-core:local
+    command: ['node', 'apps/supplier-stub/dist/main.js']
+    ports:
+      - '4002:4002'
+    environment:
+      SUPPLIER_ID: B
+      PORT: 4002
+      STUB_FAIL_RATE: 0.1
+      STUB_TIMEOUT_RATE: 0.05
+      STUB_SLOW_RATE: 0.2
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+
+volumes:
+  postgres-data:
