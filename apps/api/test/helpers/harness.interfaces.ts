@@ -1,3 +1,4 @@
+import type { Type } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 
 export interface IDbHarness {
@@ -7,6 +8,7 @@ export interface IDbHarness {
 
 export interface IApiHarness extends IDbHarness {
   baseUrl: string;
+  get<T>(token: Type<T>): T;
 }
 
 export interface ISeedProduct {

@@ -609,7 +609,7 @@ CREATE INDEX idx_orders_status_created ON orders (status, created_at DESC);
 ```
 
 `ext_id` is the public order id used in the webhook contract, format `ord_00123`:
-`'ord_' || lpad(nextval('order_ext_seq')::text, 5, '0')`. A client may supply its own `client_order_id` (validated `^ord_[A-Za-z0-9_-]{1,40}$`) which becomes `ext_id` — this both gives order-creation idempotency and makes criterion 3 reproducible end-to-end (you can send a webhook for an id before creating the order under that id).
+`'ord_' || lpad(nextval('order_ext_seq')::text, 5, '0')`. A client may supply its own `client_order_id` (validated `^ord_(?!\d+$)[A-Za-z0-9_-]{1,40}$`, i.e. anything but the all-digit shape the sequence itself mints) which becomes `ext_id` — this both gives order-creation idempotency and makes criterion 3 reproducible end-to-end (you can send a webhook for an id before creating the order under that id).
 
 `quantity` is pinned to 1 by a CHECK. Multi-line orders are out of scope; making the constraint explicit is honest and prevents half-implemented multi-item logic. Stated in README §9.
 
@@ -1838,7 +1838,7 @@ Errors: `400 VALIDATION_FAILED`.
 | Field | Rules |
 |---|---|
 | `sku` | required, `@IsString() @Matches(/^[A-Za-z0-9._-]{1,64}$/)` |
-| `client_order_id` | optional, `@Matches(/^ord_[A-Za-z0-9_-]{1,40}$/)` — becomes `ext_id`, doubles as the idempotency key |
+| `client_order_id` | optional, `@Matches(/^ord_(?!\d+$)[A-Za-z0-9_-]{1,40}$/)` — becomes `ext_id`, doubles as the idempotency key; must not fall inside the `order_ext_seq` namespace (all-digit suffix) |
 | `quantity` | optional, `@IsInt() @Equals(1)`, default 1 |
 | `buyer_email` | optional, `@IsEmail() @MaxLength(254)` |
 

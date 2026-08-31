@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import type { Server } from 'node:http';
 
+import type { Type } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 
@@ -32,6 +33,7 @@ export async function startApi(): Promise<IApiHarness> {
   return {
     baseUrl: `http://${TEST_HOST}:${port}`,
     dataSource,
+    get: <T>(token: Type<T>): T => app.get(token),
     stop: () => app.close(),
   };
 }
