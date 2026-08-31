@@ -18,6 +18,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['test/integration/**/*.e2e.spec.ts'],
+          globalSetup: ['./test/helpers/global.setup.ts'],
+          setupFiles: ['./test/helpers/env.setup.ts'],
           fileParallelism: false,
           testTimeout: 30000,
         },
