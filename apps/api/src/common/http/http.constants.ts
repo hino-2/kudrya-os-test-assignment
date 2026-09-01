@@ -27,3 +27,10 @@ export const VALIDATION_PIPE_OPTIONS: ValidationPipeOptions = {
   transformOptions: { enableImplicitConversion: false },
   stopAtFirstError: false,
 };
+
+export const LENIENT_VALIDATION: unique symbol = Symbol('LENIENT_VALIDATION');
+
+export const LENIENT_VALIDATION_PIPE_OPTIONS: ValidationPipeOptions = {
+  ...VALIDATION_PIPE_OPTIONS,
+  forbidNonWhitelisted: false,
+};

@@ -1,4 +1,4 @@
-import { Module, RequestMethod, ValidationPipe } from '@nestjs/common';
+import { Module, RequestMethod } from '@nestjs/common';
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 
@@ -6,12 +6,14 @@ import { CatalogModule } from './catalog/catalog.module';
 import { AppConfigModule } from './common/config/config.module';
 import { DatabaseModule } from './common/db/database.module';
 import { DomainErrorFilter } from './common/errors/domain-error.filter';
+import { AppValidationPipe } from './common/http/app-validation.pipe';
 import { HealthModule } from './common/http/health.module';
-import { VALIDATION_PIPE_OPTIONS } from './common/http/http.constants';
 import { CorrelationMiddleware } from './common/logging/correlation.middleware';
 import { LoggingModule } from './common/logging/logging.module';
+import { JobsModule } from './jobs/jobs.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { OrdersModule } from './orders/orders.module';
+import { PaymentsModule } from './payments/payments.module';
 
 @Module({
   imports: [
@@ -22,9 +24,11 @@ import { OrdersModule } from './orders/orders.module';
     CatalogModule,
     OrdersModule,
     LedgerModule,
+    JobsModule,
+    PaymentsModule,
   ],
   providers: [
-    { provide: APP_PIPE, useFactory: () => new ValidationPipe(VALIDATION_PIPE_OPTIONS) },
+    { provide: APP_PIPE, useClass: AppValidationPipe },
     { provide: APP_FILTER, useClass: DomainErrorFilter },
   ],
 })
