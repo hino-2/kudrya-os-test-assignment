@@ -10,10 +10,19 @@ import { HealthModule } from './common/http/health.module';
 import { VALIDATION_PIPE_OPTIONS } from './common/http/http.constants';
 import { CorrelationMiddleware } from './common/logging/correlation.middleware';
 import { LoggingModule } from './common/logging/logging.module';
+import { LedgerModule } from './ledger/ledger.module';
 import { OrdersModule } from './orders/orders.module';
 
 @Module({
-  imports: [AppConfigModule, LoggingModule, DatabaseModule, HealthModule, CatalogModule, OrdersModule],
+  imports: [
+    AppConfigModule,
+    LoggingModule,
+    DatabaseModule,
+    HealthModule,
+    CatalogModule,
+    OrdersModule,
+    LedgerModule,
+  ],
   providers: [
     { provide: APP_PIPE, useFactory: () => new ValidationPipe(VALIDATION_PIPE_OPTIONS) },
     { provide: APP_FILTER, useClass: DomainErrorFilter },
