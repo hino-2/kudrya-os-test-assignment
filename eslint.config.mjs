@@ -44,6 +44,8 @@ export default tseslint.config(
     files: [
       'apps/api/src/common/config/env.validation.ts',
       'apps/api/test/helpers/test-env.helper.ts',
+      'apps/api/test/helpers/app.harness.ts',
+      'apps/api/test/helpers/env.setup.worker-enabled.ts',
       'apps/supplier-stub/src/main.ts',
       'apps/supplier-stub/src/**/*.config.ts',
       'tools/**/*.ts',

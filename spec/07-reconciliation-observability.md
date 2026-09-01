@@ -54,7 +54,7 @@ timed<T>(name: LogEventName, data: Readonly<Record<string, unknown>>, fn: () => 
 |---|---|
 | `info` | `order.created`, `payment.received`, `payment.applied`, `delivery.enqueued`, `delivery.started`, `delivery.attempt.created`, `delivery.attempt.succeeded`, `delivery.completed`, `delivery.out_of_stock`, `job.claimed`, `job.succeeded`, `ledger.txn_posted`, `sweeper.cycle`, `reconcile.cycle` |
 | `warn` | `payment.duplicate`, `payment.orphan`, `payment.ignored_stale`, `payment.ignored_terminal`, `delivery.attempt.timeout`, `delivery.attempt.unknown`, `delivery.attempt.resolving`, `delivery.fallback`, `job.retry_scheduled`, `sweeper.requeued`, `reconcile.drift_repaired`, `db.serialization_retry`, `stub.scenario_forced` |
-| `error` | `payment.conflict`, `payment.amount_mismatch`, `delivery.failed`, `delivery.stranded_issuance`, `job.dead`, `ledger.imbalance_detected`, `attempt.inflight_expired` |
+| `error` | `payment.conflict`, `payment.amount_mismatch`, `delivery.failed`, `delivery.stranded_issuance`, `job.dead`, `job.worker_tick_failed`, `ledger.imbalance_detected`, `attempt.inflight_expired` |
 | `debug` | `supplier.request`, `supplier.response`, `catalog.query` |
 
 Rule for developers: **every `payment.*` and `delivery.*` path emits exactly one terminal event.** A code path that can end without a log line is a defect. This is what the assignment means by "структурированные логи по платежам и выдаче".

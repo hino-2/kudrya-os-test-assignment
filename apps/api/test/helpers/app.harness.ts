@@ -20,7 +20,11 @@ function resolvePort(server: Server): number {
   return address.port;
 }
 
-export async function startApi(): Promise<IApiHarness> {
+export async function startApi(envOverrides?: Record<string, string>): Promise<IApiHarness> {
+  if (envOverrides !== undefined) {
+    Object.assign(process.env, envOverrides);
+  }
+
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication({ logger: false });
 

@@ -1,6 +1,7 @@
 import { Module, RequestMethod } from '@nestjs/common';
 import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 
 import { CatalogModule } from './catalog/catalog.module';
 import { AppConfigModule } from './common/config/config.module';
@@ -18,6 +19,7 @@ import { PaymentsModule } from './payments/payments.module';
 @Module({
   imports: [
     AppConfigModule,
+    ScheduleModule.forRoot(),
     LoggingModule,
     DatabaseModule,
     HealthModule,

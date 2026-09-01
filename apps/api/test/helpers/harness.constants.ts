@@ -50,6 +50,9 @@ export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   CATALOG_DEFAULT_LIMIT: String(TEST_CATALOG_DEFAULT_LIMIT),
   CATALOG_MAX_LIMIT: String(TEST_CATALOG_MAX_LIMIT),
   SUPPLIER_VIRTUAL_STOCK: String(TEST_SUPPLIER_VIRTUAL_STOCK),
+  // воркер по умолчанию выключен в интеграционных тестах — сьюты включают его явно через envOverrides,
+  // иначе фоновый 200ms tick гоняется во всех сьютах и мешает teardown (гонка с app.close())
+  WORKER_ENABLED: 'false',
 };
 
 export const RESET_DATABASE_SQL = `
