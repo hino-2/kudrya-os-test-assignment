@@ -11,6 +11,8 @@ import { AppValidationPipe } from './common/http/app-validation.pipe';
 import { HealthModule } from './common/http/health.module';
 import { CorrelationMiddleware } from './common/logging/correlation.middleware';
 import { LoggingModule } from './common/logging/logging.module';
+import { DeliveryModule } from './delivery/delivery.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { JobsModule } from './jobs/jobs.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { OrdersModule } from './orders/orders.module';
@@ -26,6 +28,8 @@ import { PaymentsModule } from './payments/payments.module';
     CatalogModule,
     OrdersModule,
     LedgerModule,
+    InventoryModule,
+    DeliveryModule,
     JobsModule,
     PaymentsModule,
   ],
