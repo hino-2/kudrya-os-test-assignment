@@ -25,6 +25,8 @@ export class DeliverOrderHandler implements IJobHandler {
     await this.deliveryService.deliver({
       orderId: job.payload.orderId,
       generation: job.payload.generation,
+      attempts: job.attempts,
+      maxAttempts: job.max_attempts,
     });
   }
 }

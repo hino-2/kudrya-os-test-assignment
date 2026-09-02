@@ -17,15 +17,26 @@ export const DELIVERY_OUTCOME = {
   OUT_OF_STOCK: 'out_of_stock',
   ALREADY_DELIVERED: 'already_delivered',
   SKIPPED: 'skipped',
+  DELIVERY_FAILED: 'delivery_failed',
 } as const;
 
 export const DELIVERY_OUT_OF_STOCK_REASON = 'out_of_stock';
 
+export const SUPPLIER_JOB_LAST_ATTEMPT_MESSAGE_TEMPLATE = 'Последняя попытка задачи выдачи через поставщика исчерпана без терминального исхода: %s';
+
 export const DELIVERY_TRANSACTION_REQUIRED_MESSAGE = 'Операция доставки требует открытой транзакции';
 
-export const SUPPLIER_MODE_NOT_IMPLEMENTED_MESSAGE = 'Выдача через поставщика ещё не реализована (см. шаг 13)';
-
 export const ISSUED_DELIVERY_LOST_MESSAGE = 'Строка выданного товара потеряна после вставки';
+
+export const DELIVERY_ATTEMPT_LOST_MESSAGE = 'Строка попытки выдачи потеряна после вставки';
+
+export const SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE = 'Бюджет времени на выдачу через поставщика в рамках задачи исчерпан';
+
+export const SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE = 'Поставщик вернул исход issued без кода — нарушение контракта supplier.client';
+
+export const DELIVERY_ATTEMPT_UNKNOWN_RETRY_MESSAGE_TEMPLATE = 'Статус попытки %s остаётся неизвестным — требуется повтор задачи для дозвона к поставщику';
+
+export const ALL_SUPPLIERS_FAILED_MESSAGE_TEMPLATE = 'Не удалось выдать заказ ни у одного поставщика: %s';
 
 export const DELIVERY_FULFILMENT_SERVICES = 'DELIVERY_FULFILMENT_SERVICES';
 
@@ -60,4 +71,86 @@ export const INSERT_ISSUED_DELIVERY_SQL = `
   VALUES ($1, $2, $3, $4, 'pool', $5)
   ON CONFLICT (order_id) DO NOTHING
   RETURNING id, code
+`;
+
+export const INSERT_SUPPLIER_ISSUED_DELIVERY_SQL = `
+  INSERT INTO issued_deliveries (order_id, product_id, sku, code, source, supplier_code, delivery_attempt_id)
+  VALUES ($1, $2, $3, $4, 'supplier', $5, $6)
+  ON CONFLICT (order_id) DO NOTHING
+  RETURNING id, code
+`;
+
+const DELIVERY_ATTEMPT_COLUMNS = `
+  id, order_id, supplier_code, attempt_no, request_id, sku, state, http_status, response_code,
+  error_kind, error_reason, resolve_attempts, next_resolve_at, started_at, finished_at, duration_ms,
+  created_at, updated_at
+`;
+
+export const FIND_OPEN_ATTEMPT_SQL = `
+  SELECT ${DELIVERY_ATTEMPT_COLUMNS}
+  FROM delivery_attempts
+  WHERE order_id = $1 AND state IN ('pending','in_flight','unknown')
+  LIMIT 1
+`;
+
+export const FIND_ATTEMPTS_BY_ORDER_SQL = `
+  SELECT ${DELIVERY_ATTEMPT_COLUMNS}
+  FROM delivery_attempts
+  WHERE order_id = $1
+  ORDER BY id
+`;
+
+// TX-S1: durable-маркер 'in_flight' должен закоммититься до HTTP-вызова поставщику — без него
+// таймаут/сбой воркера после отправки запроса неотличим от того, что запрос вообще не уходил.
+export const INSERT_DELIVERY_ATTEMPT_SQL = `
+  INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, state, started_at)
+  VALUES ($1,$2,$3,$4,$5,'in_flight', now())
+  -- предикат WHERE обязателен: без него Postgres не свяжет ON CONFLICT с частичным уникальным индексом
+  ON CONFLICT (order_id) WHERE state IN ('pending','in_flight','unknown') DO NOTHING
+  RETURNING ${DELIVERY_ATTEMPT_COLUMNS}
+`;
+
+// возобновление уже открытой попытки (in_flight после сбоя воркера, unknown в ожидании
+// дозвона) — request_id не меняется, повторный POST /issue с тем же request_id идемпотентен
+// на стороне поставщика
+export const RESUME_DELIVERY_ATTEMPT_SQL = `
+  UPDATE delivery_attempts
+  SET state = 'in_flight', started_at = now(), updated_at = now()
+  WHERE id = $1 AND state IN ('in_flight','unknown')
+  RETURNING ${DELIVERY_ATTEMPT_COLUMNS}
+`;
+
+export const FINALIZE_ATTEMPT_SUCCEEDED_SQL = `
+  UPDATE delivery_attempts
+  SET state = 'succeeded', http_status = $2, response_code = $3, finished_at = now(),
+      duration_ms = $4, updated_at = now()
+  WHERE id = $1 AND state = 'in_flight'
+  RETURNING id
+`;
+
+export const FINALIZE_ATTEMPT_FAILED_SQL = `
+  UPDATE delivery_attempts
+  SET state = 'failed', http_status = $2, error_kind = $3, error_reason = $4, finished_at = now(),
+      duration_ms = $5, updated_at = now()
+  WHERE id = $1 AND state = 'in_flight'
+  RETURNING id
+`;
+
+// resolve_attempts считает каждый переход попытки в unknown (включая первый) — бюджет
+// дозвонов до поставщика перед тем, как считать попытку abandoned_unknown (см. supplier-plan.util)
+export const PROMOTE_ATTEMPT_TO_UNKNOWN_SQL = `
+  UPDATE delivery_attempts
+  SET state = 'unknown', http_status = $2, error_kind = $3, error_reason = $4,
+      resolve_attempts = resolve_attempts + 1, next_resolve_at = $5, updated_at = now()
+  WHERE id = $1 AND state = 'in_flight'
+  RETURNING resolve_attempts
+`;
+
+// abandoned_unknown выходит из-под partial unique index delivery_attempts_open_uq — освобождает
+// заказ для попытки со следующим поставщиком, не дожидаясь ручного разрешения (см. README §6)
+export const MARK_ATTEMPT_ABANDONED_SQL = `
+  UPDATE delivery_attempts
+  SET state = 'abandoned_unknown', finished_at = now(), updated_at = now()
+  WHERE id = $1 AND state = 'unknown'
+  RETURNING id
 `;

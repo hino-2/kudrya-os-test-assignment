@@ -1,12 +1,19 @@
 import type { SupplierId } from '../config/stub-config.type';
 
 export interface IIssueResult {
-  requestId: string;
+  status: 'ok';
+  request_id: string;
   sku: string;
-  orderId: string;
+  order_id: string;
   code: string;
-  issuedAt: string;
+  issued_at: string;
   replayed: boolean;
+}
+
+export interface IIssueLookupResult {
+  status: 'ok';
+  request_id: string;
+  code: string;
 }
 
 export interface IInventoryView {

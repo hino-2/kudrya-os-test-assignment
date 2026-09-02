@@ -37,6 +37,18 @@ export const UNSAFE_DATABASE_HINT =
 
 export const TEST_HOST = '127.0.0.1';
 
+// AppConfigService (@nestjs/config ConfigModule.forRoot) reads process.env synchronously at
+// AppModule's first import in the process — before any test file's beforeAll runs. Dynamic
+// listen(0, ...) ports can never be known that early, so the worker-enabled suites use these
+// fixed ports instead: env.setup.worker-enabled.ts bakes them into SUPPLIER_A_BASE_URL /
+// SUPPLIER_B_BASE_URL before AppModule is ever imported, and the spec files tell startStub()
+// to bind to the matching fixed port.
+export const TEST_WORKER_SUPPLIER_A_PORT = 41101;
+
+export const TEST_WORKER_SUPPLIER_B_PORT = 41102;
+
+export const TEST_WORKER_SUPPLIER_REQUEST_TIMEOUT_MS = 150;
+
 export const TEST_CATALOG_DEFAULT_LIMIT = 24;
 
 export const TEST_CATALOG_MAX_LIMIT = 50;

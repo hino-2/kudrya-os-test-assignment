@@ -12,6 +12,8 @@ import {
   JOB_ENQUEUE_SQL,
   JOB_FAIL_DEAD_SQL,
   JOB_FAIL_RETRY_SQL,
+  JOB_RECLAIMED_STALE_LOCK_ERROR,
+  JOB_REQUEUE_STALE_SQL,
   JOB_STATE,
   JOB_TRANSACTION_REQUIRED_MESSAGE,
 } from './jobs.constants';
@@ -91,6 +93,18 @@ export class JobQueueService {
     );
 
     return { state: JOB_STATE.PENDING, runAt };
+  }
+
+  async requeueStale(qr: QueryRunner, lockTtlMs: number): Promise<number> {
+    this.assertTransaction(qr);
+
+    const [rows] = await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
+      JOB_REQUEUE_STALE_SQL,
+      [lockTtlMs, JOB_RECLAIMED_STALE_LOCK_ERROR],
+      qr,
+    );
+
+    return rows.length;
   }
 
   private assertTransaction(qr: QueryRunner): void {

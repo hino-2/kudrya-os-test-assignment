@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { DomainError } from '../../src/common/errors/domain.error';
 import { ERROR_CODE } from '../../src/common/errors/errors.constants';
 import type { UnitOfWorkService } from '../../src/common/db/unit-of-work.service';
-import { SUPPLIER_MODE_NOT_IMPLEMENTED_MESSAGE } from '../../src/delivery/delivery.constants';
 import { DeliveryService } from '../../src/delivery/delivery.service';
 import { buildOrderNotFoundMessage, buildUnknownFulfillmentModeMessage } from '../../src/delivery/delivery.util';
 import type { DeliveryRepository } from '../../src/delivery/delivery.repository';
@@ -41,13 +40,15 @@ describe('DeliveryService.deliver mode dispatch', () => {
     });
   });
 
-  it('throws for supplier mode as it is not implemented yet (step 13)', async () => {
-    const service = new DeliveryService(buildUnitOfWork(), buildDeliveryRepository('supplier'), []);
+  it('delegates to the matching fulfilment service for supplier mode', async () => {
+    const result: IDeliveryResult = { outcome: 'delivered', code: 'SUP-XYZ' };
+    const supplierService = buildFulfilmentService('supplier', result);
+    const service = new DeliveryService(buildUnitOfWork(), buildDeliveryRepository('supplier'), [supplierService]);
 
-    await expect(service.deliver({ orderId: ORDER_ID, generation: GENERATION })).rejects.toMatchObject({
-      code: ERROR_CODE.INTERNAL_ERROR,
-      message: SUPPLIER_MODE_NOT_IMPLEMENTED_MESSAGE,
-    });
+    const outcome = await service.deliver({ orderId: ORDER_ID, generation: GENERATION });
+
+    expect(outcome).toEqual(result);
+    expect(supplierService.fulfil).toHaveBeenCalledWith({ orderId: ORDER_ID, generation: GENERATION });
   });
 
   it('delegates to the matching fulfilment service for pool mode', async () => {

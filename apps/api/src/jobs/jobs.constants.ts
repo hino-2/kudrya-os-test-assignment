@@ -87,3 +87,14 @@ export const JOB_FAIL_DEAD_SQL = `
   WHERE id = $1 AND state = 'running'
   RETURNING id
 `;
+
+export const JOB_RECLAIMED_STALE_LOCK_ERROR = 'reclaimed_stale_lock';
+
+// подбирает джобы, застрявшие в state='running' дольше lockTtlMs (воркер упал/завис,
+// не дойдя до complete/fail) и возвращает их в pending, чтобы их подобрал живой воркер
+export const JOB_REQUEUE_STALE_SQL = `
+  UPDATE jobs
+  SET state = 'pending', run_at = now(), last_error = $2, locked_at = NULL, locked_by = NULL, updated_at = now()
+  WHERE state = 'running' AND locked_at < now() - ($1 || ' milliseconds')::interval
+  RETURNING id
+`;

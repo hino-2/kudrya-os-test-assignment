@@ -11,6 +11,11 @@ export interface IApiHarness extends IDbHarness {
   get<T>(token: Type<T>): T;
 }
 
+export interface IStubHarness {
+  baseUrl: string;
+  stop(): Promise<void>;
+}
+
 export interface ISeedProduct {
   sku: string;
   name: string;

@@ -16,12 +16,19 @@ interface IHttpResult<T> {
 }
 
 interface IIssueResultBody {
-  requestId: string;
+  status: string;
+  request_id: string;
   sku: string;
-  orderId: string;
+  order_id: string;
   code: string;
-  issuedAt: string;
+  issued_at: string;
   replayed: boolean;
+}
+
+interface IIssueLookupResultBody {
+  status: string;
+  request_id: string;
+  code: string;
 }
 
 interface IErrorBody {
@@ -120,6 +127,7 @@ describe('supplier-stub /issue', () => {
     });
 
     expect(result.status).toBe(200);
+    expect(result.body.status).toBe('ok');
     expect(result.body.replayed).toBe(false);
     expect(result.body.code).toMatch(CODE_REGEX);
   });
@@ -155,9 +163,11 @@ describe('supplier-stub /issue', () => {
 
     await postJson(harness.baseUrl, '/issue', { request_id: requestId, sku: 'KEY-EFT', order_id: 'order-4' });
 
-    const known = await getJson<IIssueResultBody>(harness.baseUrl, `/issue/${requestId}`);
+    const known = await getJson<IIssueLookupResultBody>(harness.baseUrl, `/issue/${requestId}`);
 
     expect(known.status).toBe(200);
+    expect(known.body.status).toBe('ok');
+    expect(known.body.request_id).toBe(requestId);
     expect(known.body.code).toMatch(CODE_REGEX);
 
     const unknown = await getJson<IErrorBody>(harness.baseUrl, '/issue/does-not-exist');
@@ -199,9 +209,10 @@ describe('supplier-stub /issue', () => {
 
     await issueExpectNoResponse(harness.baseUrl, { request_id: requestId, sku: 'KEY-EFT', order_id: 'order-7' });
 
-    const stored = await getJson<IIssueResultBody>(harness.baseUrl, `/issue/${requestId}`);
+    const stored = await getJson<IIssueLookupResultBody>(harness.baseUrl, `/issue/${requestId}`);
 
     expect(stored.status).toBe(200);
+    expect(stored.body.status).toBe('ok');
     expect(stored.body.code).toMatch(CODE_REGEX);
   });
 
@@ -313,11 +324,12 @@ describe('supplier-stub persistence across restarts', () => {
 
     const secondRun = await startStub({ ...TEST_ENV, STUB_PERSIST_PATH: persistPath });
 
-    const found = await getJson<IIssueResultBody>(secondRun.baseUrl, `/issue/${requestId}`);
+    const found = await getJson<IIssueLookupResultBody>(secondRun.baseUrl, `/issue/${requestId}`);
 
     await secondRun.stop();
 
     expect(found.status).toBe(200);
+    expect(found.body.status).toBe('ok');
     expect(found.body.code).toBe(minted.body.code);
   });
 });

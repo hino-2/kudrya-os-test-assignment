@@ -5,6 +5,7 @@ import {
   JOB_MISSING_HANDLER_MESSAGE_TEMPLATE,
   JOB_UNKNOWN_ERROR_MESSAGE,
 } from './jobs.constants';
+import type { IBackoffOptions, IJobRetryHint } from './jobs.interfaces';
 
 function formatTemplate(template: string, ...values: readonly unknown[]): string {
   let index = 0;
@@ -29,4 +30,26 @@ export function buildJobErrorText(error: unknown): string {
   const text = message.length > 0 ? message : JOB_UNKNOWN_ERROR_MESSAGE;
 
   return text.slice(0, JOB_LAST_ERROR_MAX_LENGTH);
+}
+
+function isBackoffOptions(value: unknown): value is IBackoffOptions {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const candidate = value as IBackoffOptions;
+
+  return typeof candidate.baseMs === 'number' && typeof candidate.maxMs === 'number';
+}
+
+// позволяет ошибке домена (например, исчерпанному supplier-циклу) явно подсказать
+// воркеру собственный интервал повторной попытки вместо стандартного backoff'а джобы
+export function readJobBackoffHint(error: unknown): IBackoffOptions | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+
+  const candidate = (error as Partial<IJobRetryHint>).retryBackoff;
+
+  return isBackoffOptions(candidate) ? candidate : null;
 }

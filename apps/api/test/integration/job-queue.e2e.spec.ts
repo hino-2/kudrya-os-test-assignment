@@ -21,6 +21,12 @@ const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1';
 
 const SET_MAX_ATTEMPTS_SQL = 'UPDATE jobs SET max_attempts = $2 WHERE dedupe_key = $1';
 
+const MARK_STALE_RUNNING_SQL = `
+  UPDATE jobs
+  SET state = 'running', locked_at = now() - ($2 || ' milliseconds')::interval, locked_by = 'dead-worker'
+  WHERE dedupe_key = $1
+`;
+
 let harness: IApiHarness;
 
 function buildEnqueueInput(overrides: Partial<IEnqueueJobInput>): IEnqueueJobInput {
@@ -131,6 +137,47 @@ describe('job queue + worker', () => {
     expect(job).toBeDefined();
     expect(job.state).toBe(JOB_STATE.DEAD);
     expect(job.finished_at).not.toBeNull();
+  });
+
+  it('reclaims a job stuck in running past the lock TTL back to pending', async () => {
+    const unitOfWork = harness.get(UnitOfWorkService);
+    const queue = harness.get(JobQueueService);
+    const dedupeKey = 'stale:job';
+    const lockTtlMs = 120000;
+
+    await enqueue({ dedupeKey });
+    await harness.dataSource.query(MARK_STALE_RUNNING_SQL, [dedupeKey, lockTtlMs + 10000]);
+
+    const requeuedCount = await unitOfWork.withTransaction((qr) => queue.requeueStale(qr, lockTtlMs));
+
+    expect(requeuedCount).toBe(1);
+
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const job = rows[0];
+
+    expect(job).toBeDefined();
+    expect(job.state).toBe(JOB_STATE.PENDING);
+    expect(job.locked_at).toBeNull();
+    expect(job.locked_by).toBeNull();
+    expect(job.last_error).toBe('reclaimed_stale_lock');
+  });
+
+  it('does not reclaim a job whose lock is still within the TTL', async () => {
+    const unitOfWork = harness.get(UnitOfWorkService);
+    const queue = harness.get(JobQueueService);
+    const dedupeKey = 'fresh:job';
+    const lockTtlMs = 120000;
+
+    await enqueue({ dedupeKey });
+    await harness.dataSource.query(MARK_STALE_RUNNING_SQL, [dedupeKey, 1000]);
+
+    const requeuedCount = await unitOfWork.withTransaction((qr) => queue.requeueStale(qr, lockTtlMs));
+
+    expect(requeuedCount).toBe(0);
+
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+
+    expect(rows[0]?.state).toBe(JOB_STATE.RUNNING);
   });
 
   it('does not claim a job scheduled to run in the future', async () => {

@@ -2,10 +2,9 @@ import { Body, Controller, Get, NotFoundException, Param, Post, Res } from '@nes
 import type { Response } from 'express';
 
 import { STUB_ERROR_CODE } from '../config/stub-config.constants';
-import type { IIssueRecord } from '../persistence/stub-state.interfaces';
 import { IssueRequestDto } from './dto/issue-request.dto';
 import { IssueService } from './issue.service';
-import type { IInventoryView } from './issue.interfaces';
+import type { IInventoryView, IIssueLookupResult } from './issue.interfaces';
 
 @Controller()
 export class IssueController {
@@ -34,14 +33,14 @@ export class IssueController {
   }
 
   @Get('issue/:requestId')
-  lookup(@Param('requestId') requestId: string): IIssueRecord {
+  lookup(@Param('requestId') requestId: string): IIssueLookupResult {
     const record = this.issueService.lookup(requestId);
 
     if (!record) {
       throw new NotFoundException({ status: 'error', reason: STUB_ERROR_CODE.NOT_FOUND });
     }
 
-    return record;
+    return { status: 'ok', request_id: record.requestId, code: record.code };
   }
 
   @Get('inventory')

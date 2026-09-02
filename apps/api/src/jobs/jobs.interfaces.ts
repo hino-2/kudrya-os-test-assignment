@@ -71,3 +71,7 @@ export interface IWorkerCycleResult {
   failed: number;
   dead: number;
 }
+
+export interface IJobRetryHint {
+  readonly retryBackoff: IBackoffOptions;
+}

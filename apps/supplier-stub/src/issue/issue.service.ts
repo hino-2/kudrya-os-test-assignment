@@ -226,11 +226,12 @@ export class IssueService {
 
   private toResult(record: IIssueRecord, replayed: boolean): IIssueResult {
     return {
-      requestId: record.requestId,
+      status: 'ok',
+      request_id: record.requestId,
       sku: record.sku,
-      orderId: record.orderId,
+      order_id: record.orderId,
       code: record.code,
-      issuedAt: record.issuedAt,
+      issued_at: record.issuedAt,
       replayed,
     };
   }

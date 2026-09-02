@@ -10,9 +10,15 @@ import {
   FIND_FULFILLMENT_MODE_SQL,
   FIND_ISSUED_DELIVERY_SQL,
   INSERT_ISSUED_DELIVERY_SQL,
+  INSERT_SUPPLIER_ISSUED_DELIVERY_SQL,
   LOCK_ORDER_FOR_DELIVERY_SQL,
 } from './delivery.constants';
-import type { IInsertIssuedDeliveryInput, IIssuedDeliveryRow, ILockedOrderRow } from './delivery.interfaces';
+import type {
+  IInsertIssuedDeliveryInput,
+  IInsertSupplierIssuedDeliveryInput,
+  IIssuedDeliveryRow,
+  ILockedOrderRow,
+} from './delivery.interfaces';
 
 @Injectable()
 export class DeliveryRepository {
@@ -44,6 +50,21 @@ export class DeliveryRepository {
     const rows = await this.run<IIssuedDeliveryRow>(
       INSERT_ISSUED_DELIVERY_SQL,
       [input.orderId, input.productId, input.sku, input.code, input.stockKeyId],
+      qr,
+    );
+
+    return rows[0] ?? null;
+  }
+
+  async insertSupplierIssuedDelivery(
+    qr: QueryRunner,
+    input: IInsertSupplierIssuedDeliveryInput,
+  ): Promise<IIssuedDeliveryRow | null> {
+    this.assertTransaction(qr);
+
+    const rows = await this.run<IIssuedDeliveryRow>(
+      INSERT_SUPPLIER_ISSUED_DELIVERY_SQL,
+      [input.orderId, input.productId, input.sku, input.code, input.supplierCode, input.deliveryAttemptId],
       qr,
     );
 

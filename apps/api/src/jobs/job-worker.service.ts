@@ -16,7 +16,7 @@ import {
 } from './jobs.constants';
 import type { IJobRow, IWorkerCycleResult } from './jobs.interfaces';
 import type { JobOutcome } from './jobs.type';
-import { buildMissingHandlerMessage } from './jobs.util';
+import { buildMissingHandlerMessage, readJobBackoffHint } from './jobs.util';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,6 +76,16 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
   }
 
   async runOnce(): Promise<IWorkerCycleResult> {
+    // возвращает джобы, зависшие в state='running' дольше lockTtlMs (упавший/зависший воркер),
+    // обратно в pending — до claim, чтобы тот же тик мог сразу их подобрать
+    const requeuedCount = await this.unitOfWork.withTransaction((qr) =>
+      this.queue.requeueStale(qr, this.config.jobs.lockTtlMs),
+    );
+
+    if (requeuedCount > 0) {
+      this.logger.event(LOG_EVENT.JOB_RETRY_SCHEDULED, { requeued_stale: requeuedCount });
+    }
+
     // claim коммитится отдельной транзакцией до запуска обработчика: state='running' и attempts+1
     // должны быть видны другим воркерам и переживать падение обработчика
     const claimed = await this.unitOfWork.withTransaction((qr) =>
@@ -174,13 +184,18 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
       return;
     }
 
+    const backoff = readJobBackoffHint(error) ?? {
+      baseMs: this.config.jobs.retryBaseMs,
+      maxMs: this.config.jobs.retryMaxMs,
+    };
+
     const result = await this.unitOfWork.withTransaction((qr) =>
       this.queue.fail(qr, {
         id: job.id,
         attempts: job.attempts,
         maxAttempts: job.max_attempts,
         error,
-        backoff: { baseMs: this.config.jobs.retryBaseMs, maxMs: this.config.jobs.retryMaxMs },
+        backoff,
       }),
     );
 

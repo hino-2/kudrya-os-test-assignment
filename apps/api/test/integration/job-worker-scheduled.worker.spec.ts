@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DataSource } from 'typeorm';
 
 import { UnitOfWorkService } from '../../src/common/db/unit-of-work.service';
@@ -7,6 +7,7 @@ import { JOB_KIND, JOB_STATE } from '../../src/jobs/jobs.constants';
 import type { IEnqueueJobInput, IJobRow } from '../../src/jobs/jobs.interfaces';
 import { startApi } from '../helpers/app.harness';
 import type { IApiHarness } from '../helpers/harness.interfaces';
+import { resetDatabase } from '../helpers/pg.helper';
 
 const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1';
 
@@ -61,6 +62,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await harness?.stop();
+});
+
+beforeEach(async () => {
+  // без reset джоба зависит от "чистого" orders (id=1 отсутствует) — при повторных
+  // запусках без truncate между файлами это ломается на leftover-заказе от соседних спеков
+  await resetDatabase(harness.dataSource);
 });
 
 describe('job worker (real scheduled @Interval tick, WORKER_ENABLED=true)', () => {
