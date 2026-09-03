@@ -10,7 +10,34 @@
 
 ### 1.1 Через docker compose
 
-<!-- TODO -->
+```bash
+cp .env.example .env
+docker compose up -d
+npm ci
+npm run migration:run
+npm run seed:catalog
+```
+
+`docker-compose.yml` поднимает `postgres` (порт `5432`), `api` (`3000`) и два экземпляра
+`supplier-stub` — `supplier-a` (`4001`) и `supplier-b` (`4002`), собранные из одного образа с
+разными `SUPPLIER_ID`/`PORT`. `api` и оба стенда ждут health-чек `postgres` (`pg_isready`) перед
+стартом.
+
+Проверка, что стенд поднялся:
+
+```bash
+curl -i http://localhost:3000/health
+curl -i http://localhost:3000/health/ready
+curl -s http://localhost:3000/catalog | head -c 300
+npm run race -- --sku KEY-GTA5 --count 50
+```
+
+Полный чистый прогон с нуля (то, что гоняет CI-эквивалент вручную):
+
+```bash
+docker compose down -v   # если стенд поднимался раньше — снести том с данными
+docker compose up -d && npm run migration:run && npm run seed:catalog && npm run race
+```
 
 ### 1.2 Локально (Node 22 + внешний Postgres)
 
@@ -55,25 +82,119 @@
 
 ### 1.5 API — карта эндпоинтов
 
-<!-- TODO -->
+Единый конверт ошибки: `{"error":{"code","message","details","trace_id"}}`. Глобальный
+`ValidationPipe`: `whitelist:true, forbidNonWhitelisted:true, transform:true,
+transformOptions:{enableImplicitConversion:false}, stopAtFirstError:false` — кроме DTO вебхука
+оплаты, где `forbidNonWhitelisted:false` (провайдер платежа может добавить поле, это не должно
+приводить к массовым 400).
+
+| Метод и путь | Назначение | Коды |
+|---|---|---|
+| `GET /health` | liveness | `200` |
+| `GET /health/ready` | readiness (проверка соединения с БД) | `200` / `503` |
+| `GET /catalog` | список товаров: `type`, `in_stock`, `limit`, `cursor`, `q` | `200` |
+| `GET /catalog/:sku` | карточка товара | `200` / `404` |
+| `POST /orders` | создать заказ (`sku`, `client_order_id`, `quantity`, `buyer_email`); наличие проверяется не при создании, а при доставке — иначе критерий 6 непроверяем | `201` (новый) / `200` (повтор по `client_order_id`) |
+| `GET /orders/:orderId` | карточка заказа + `delivery` + до 20 последних `payment_events` + `delivery_attempts` | `200` / `404` |
+| `POST /webhooks/payment` | вебхук платёжного провайдера; `result`: `applied`/`duplicate`/`orphan`/`ignored_stale`/`ignored_already_paid`/`ignored_terminal`/`conflict`/`rejected_amount` | `200`/`201`/`409`/`422` (см. `spec/09-http-api-surface.md`) |
+| `GET /reconciliation/*` | отчёты сверки (защищено `AdminTokenGuard`) | `200` |
+| `POST /admin/restock` | пополнить остаток SKU | `200` |
+| `POST /admin/redeliver` | принудительно повторить доставку заказа | `200` |
+| `POST /admin/force-paid` | вручную перевести заказ в `paid` | `200` |
+| `POST /admin/refund` | вручную оформить возврат | `200` |
+| `POST /admin/jobs/drain` | форсировать обработку очереди задач | `200` |
+| `POST /admin/sweeper/run` | форсировать разовый прогон sweeper | `200` |
+| `POST /admin/reconcile/stock` | форсировать сверку остатков | `200` |
+
+Все `/admin/*` и `/reconciliation/*` требуют заголовок `x-admin-token`, сверяемый с `ADMIN_TOKEN`
+константным по времени сравнением (`AdminTokenGuard`). Полные схемы тел запроса/ответа,
+валидаторы полей и таблица кодов по каждому результату вебхука — в `spec/09-http-api-surface.md`.
 
 ## 2. Тесты
 
 ### 2.1 Юнит-тесты
 
-<!-- TODO -->
+```bash
+npm run test:unit
+```
+
+Vitest-проект `unit` (`apps/api/test/unit/**/*.spec.ts`, без окружения, параллельно): 22 файла —
+чистые функции и мапперы без БД и HTTP (`money.util`, `mask.util`, `correlation.store`,
+`pg-error.util`, `app-logger.service`, `json-logger`, `env.validation`, `catalog-mapper`,
+`catalog-util`, `seed-sql-parity`, `order-state-machine`, `orders-util`, `orders-mapper`,
+`orders-ext-id`, `ledger-util`, `ledger.service`, `backoff.util`, `job-worker.service`,
+`delivery.dispatch`, `jobs.util`, `supplier-plan.util`, `suppliers.util`) плюс
+`apps/supplier-stub/test/issue.spec.ts` для логики заглушки поставщика.
 
 ### 2.2 Интеграционные тесты
 
-<!-- TODO -->
+```bash
+npm run test:integration
+```
+
+Требует поднятую PostgreSQL (`TEST_DATABASE_URL`/`DATABASE_URL`). Два Vitest-проекта:
+
+- `integration` (`apps/api/test/integration/**/*.e2e.spec.ts`) — HTTP через `supertest`-подобный
+  `app.harness.ts`, изоляция между тестами через `pg.helper.ts` (`TRUNCATE ... RESTART IDENTITY
+  CASCADE` + сброс последовательностей в `beforeEach`; транзакционный rollback не подходит —
+  тестам конкурентности на 50 соединениях нужны закоммиченные строки, видимые всем).
+- `integration-worker` (`*.worker.spec.ts`) — то же плюс реальный воркер фоновых задач
+  (`env.setup.worker-enabled.ts`), запускается серийно (`singleThread:true`,
+  `fileParallelism:false`, `testTimeout:30000`) — общая БД, гонки внутри самого набора тестов
+  недопустимы.
+
+12 файлов: `catalog.e2e`, `seed-catalog-cli.e2e`, `orders.e2e`, `ledger.e2e`,
+`payment-webhook.e2e`, `pool-delivery.e2e`, `pool-delivery.worker`, `job-queue.e2e`,
+`job-worker-scheduled.worker`, `supplier-delivery-fallback.worker`, `supplier-delivery.worker`,
+`webhook-race.worker`. Стенды поставщиков в этих тестах поднимаются как настоящий HTTP по
+loopback (`supplier-stub.harness.ts`) — таймауты в тестах критерия 4 это реальные сетевые
+таймауты, а не мок.
 
 ### 2.3 Карта критериев приёмки
 
-<!-- TODO -->
+Реальная организация тестов отличается от изначального плана в `spec/11-test-plan.md`
+(там — один файл на критерий): часть критериев объединена в один файл, где это естественно
+вытекает из общего сценария (один вебхук-эндпоинт).
+
+| Критерий | Файл | Что покрыто |
+|---|---|---|
+| 1. Гонка параллельных вебхуков | `webhook-race.worker.spec.ts` | 50 параллельных `POST /webhooks/payment` с разными `event_id` на один заказ — ровно одна проводка, одна выдача |
+| 2. Идемпотентность вебхука | `payment-webhook.e2e.spec.ts` | повтор того же `event_id` → `duplicate`; 50 параллельных с разными `event_id` |
+| 3. Вебхук не по порядку / до заказа | `payment-webhook.e2e.spec.ts` | вебхук на неизвестный заказ → `orphan`; `failed`-после-`paid` → `conflict`; несовпадение суммы → `rejected_amount`; устаревшее событие → `ignored_stale` |
+| 4. Таймаут поставщика и ретраи | `supplier-delivery.worker.spec.ts` | повтор доставки после таймаута; `out_of_stock` от обоих поставщиков; `delivery_failed` после исчерпания бюджета 5xx-ретраев. **Частично**: сценарии восстановления через sweeper/admin (этап 4) не реализованы — вне текущего скоупа. |
+| 5. Фолбэк поставщика A → B | `supplier-delivery-fallback.worker.spec.ts` | недоступность A → доставка через B |
+| 6. Восстановление после нехватки остатка | `pool-delivery.e2e.spec.ts` | доставка из пула, идемпотентный повторный вызов, `out_of_stock` при пустом пуле, повтор уже выданного заказа, пропуск устаревшего поколения задачи. **Частично**: восстановление через `/admin/restock` + sweeper (этап 4) не реализовано — вне текущего скоупа. |
+
+Критерии 4 и 6 покрыты только по «основному пути» (отказ поставщика / нехватка остатка и
+корректная реакция на это), потому что сверка и автоматическое восстановление относятся
+к этапу 4, который в этом проекте намеренно не реализован (см. §9).
+
+Вспомогательные (не привязанные к одному критерию) интеграционные тесты: `catalog.e2e`,
+`orders.e2e`, `ledger.e2e`, `seed-catalog-cli.e2e`, `job-queue.e2e`, `job-worker-scheduled.worker`,
+`pool-delivery.worker` — механика очереди задач, каталога, заказов и бухгалтерской книги.
 
 ### 2.4 Линт / typecheck / CI
 
-<!-- TODO -->
+```bash
+npm run lint
+npm run typecheck
+```
+
+ESLint flat config (`eslint.config.mjs`): `@eslint/js` + `typescript-eslint` рекомендованные
+наборы, кастомное правило `no-restricted-properties`, запрещающее прямой доступ к `process.env`
+(сообщение: используйте `AppConfigService`/типизированные геттеры конфигурации) — с исключением
+для файлов конфигурации/тестовых хелперов/`tools/**`/`data-source.ts`, которым нужен прямой
+доступ; `padding-line-between-statements` (пустая строка после блоков и объявлений
+`const/let/var`); `eslint-config-prettier` подключён последним, чтобы не конфликтовать
+с Prettier.
+
+CI (`.github/workflows/ci.yml`) — 4 независимые джобы на каждый push/PR: `lint`, `typecheck`,
+`unit`, `integration`. Джоба `integration` поднимает `postgres:16-alpine` как service-контейнер
+с health-check ретраями и окружением `TEST_DATABASE_URL`/`DATABASE_URL`/`STUB_FAIL_RATE=0`/
+`STUB_TIMEOUT_RATE=0`/`STUB_SLOW_RATE=0` (детерминированные стенды поставщиков в CI). Каждая джоба:
+`actions/checkout@v4` → `actions/setup-node@v4` (Node 22, кеш npm) → `npm ci` → соответствующий
+корневой скрипт. Итоговый гейт перед мержем: `lint → typecheck → test:unit → migration:run →
+test:integration`.
 
 ## 3. Воспроизведение гонки (50 параллельных вебхуков)
 
@@ -354,11 +475,65 @@ curl -s http://localhost:4001/_control/state
 
 ### 5.9 Зависимости
 
-<!-- TODO -->
+`apps/api` — 10 продакшн-пакетов, каждый закрывает то, что нецелесообразно писать самому:
+
+| Пакет | Зачем |
+|---|---|
+| `@nestjs/common`, `@nestjs/core`, `@nestjs/platform-express` | каркас приложения, DI, HTTP-адаптер |
+| `@nestjs/config` | загрузка/валидация `.env` |
+| `@nestjs/schedule` | периодические задачи воркера/sweeper/сверки в том же процессе |
+| `@nestjs/typeorm`, `typeorm` | доступ к Postgres, миграции, транзакции |
+| `pg` | драйвер PostgreSQL, нужен TypeORM |
+| `class-validator`, `class-transformer` | DTO-валидация запросов, тесно завязаны на `ValidationPipe` Nest |
+| `reflect-metadata`, `rxjs` | обязательные peer-зависимости Nest |
+
+Осознанно не добавлено (написано самостоятельно вместо пакета):
+
+| Вместо | Почему свой код |
+|---|---|
+| `axios` | глобальный `fetch` уже даёт всё нужное (таймаут через `AbortSignal.timeout`) |
+| `uuid` | `crypto.randomUUID()` из стандартной библиотеки |
+| `pino`/`nestjs-pino` | требование — «структурированные JSON-логи», не конкретная библиотека; свой `JsonLogger` — ~70 строк (§5.7) |
+| `bullmq`/redis | очередь задач — таблица `jobs` + `SELECT ... FOR UPDATE SKIP LOCKED` (§5.4), лишняя инфраструктура не нужна для этого объёма |
+| `lodash` | стандартная библиотека ES2023 покрывает всё использованное |
+| `dayjs`/`moment` | весь проект работает с `Date`/эпохой в миллисекундах, часовых зон нет |
+| `joi`/`zod` | `class-validator` уже валидирует DTO; переменные окружения — свой `env.validation.ts` |
+| `p-retry` | свой `backoff.util.ts` — экспоненциальный бэкофф с джиттером, завязанный на `jobs.attempts` |
+| `nestjs-cls` | `AsyncLocalStorage` из `node:async_hooks` напрямую (§5.7) |
+| `@nestjs/terminus` | `HealthController` — два простых эндпоинта, полноценный модуль здоровья избыточен |
+| `@nestjs/swagger` | таблица эндпоинтов в README (§1.5) достаточна для объёма задания |
+| `helmet`/`compression`/`cors` | нет браузерного клиента этого API |
+
+Не добавлено и не требовалось: `@nestjs/cli` (сборка через голый `tsc`), `supertest`
+(HTTP-тесты идут через собственный `app.harness.ts` на реальном `fetch`), `testcontainers`
+(CI поднимает Postgres как service-контейнер напрямую), `ts-node` (`tsx` быстрее и уже
+используется для watch-режима и CLI), `husky`/`lint-staged` (гейты живут в CI, не в
+git-хуках). `apps/supplier-stub` и `tools/` не добавляют ни одной новой продакшн-зависимости
+сверх уже перечисленных.
 
 ## 6. Масштабирование
 
-<!-- TODO -->
+- **Горизонтальное масштабирование `apps/api`.** Приложение не хранит состояние в процессе —
+  вся координация идёт через Postgres (`SELECT ... FOR UPDATE SKIP LOCKED` для очереди задач
+  и резервации ключей пула, уникальные индексы вместо блокировок в памяти), поэтому несколько
+  реплик `apps/api` за балансировщиком уже сегодня безопасно делят одну очередь и один пул
+  ключей без дополнительных изменений — конкурентные тесты (критерий 1) фактически уже проверяют
+  этот сценарий на уровне одного процесса с параллельными запросами.
+- **Узкое место — одна БД Postgres.** До появления второй реплики/шардирования единственная
+  точка масштабирования — вертикальный рост БД и/или read-реплика для `GET /catalog`
+  (частого, редко меняющегося запроса), с записью (заказы, вебхуки, доставки) по-прежнему
+  на primary.
+- **Очередь задач на таблице `jobs`** (§5.4) масштабируется горизонтально ростом числа воркеров
+  ровно так же, как `apps/api` — `SKIP LOCKED` не даёт двум воркерам взять одну и ту же джобу.
+  Предел этого подхода — конкуренция за строки таблицы `jobs` при очень большом числе воркеров;
+  для объёма задания (единицы-десятки воркеров) это не проблема. При кратно большей нагрузке
+  логичный следующий шаг — вынести очередь в `bullmq`/redis, но это сознательно отвергнуто
+  сейчас как преждевременная инфраструктура (§5.9).
+- **Circuit breaker для интеграции с поставщиками сознательно не реализован** — обоснование
+  то же самое, что и в §5.5 (фиксированный список из двух поставщиков, decision по-заказно,
+  а не по глобальной статистике, таймаут уже ограничен сверху `SUPPLIER_JOB_BUDGET_MS`): см.
+  §5.5 «Circuit breaker сознательно не реализован» — при росте числа внешних поставщиков это
+  первое, что стоит пересмотреть.
 
 ## 7. Каталог под нагрузкой: EXPLAIN ANALYZE
 
@@ -384,8 +559,31 @@ curl -s http://localhost:4001/_control/state
 
 ## 8. Затраченное время
 
-<!-- TODO -->
+По меткам коммитов (`git log`), 14 коммитов с 2026-08-31 по 2026-09-03:
+
+| Дата | Что сделано |
+|---|---|
+| 2026-08-31, 15:20–17:46 | bootstrap воркспейса, скелет API, схема БД и первые миграции |
+| 2026-09-01, 02:44–15:42 | каталог + сидер, заказы + машина состояний, бухгалтерская книга, разбивка `spec.md` на файлы, вебхук оплаты (TX-W), очередь задач и воркер |
+| 2026-09-02, 11:32 | доставка из пула (TX-P, `SKIP LOCKED`), заглушка поставщика со сценариями |
+| 2026-09-03, 01:13–10:39 | фолбэк доставки A→B, CLI-инструменты в `tools/` |
+
+Работа шла сессиями, растянутыми на 3 календарных дня; суммарное активное время — оценочно
+12–15 часов чистой работы (без учёта времени на чтение спецификации между сессиями).
 
 ## 9. Что осталось за рамками
 
-<!-- TODO -->
+- **Этапы 4 и 5 задания (сверка/наблюдаемость/восстановление, каталог под нагрузкой) —
+  сознательно не реализованы.** Это решение по проекту, а не пропуск: этапы 1-3 покрыты
+  полностью (заказы, оплата, доставка с фолбэком и восстановлением на уровне happy/failure
+  path), но админ-эндпоинты `/admin/restock`+`/admin/redeliver` в связке с автоматическим
+  sweeper-восстановлением (критерии 4/6, «частично» в §2.3) и раздел 7 (`EXPLAIN ANALYZE`)
+  оставлены пустыми `<!-- TODO -->` по этой же причине.
+- **Проверка подписи вебхука** не реализована — задание не описывает конкретный механизм
+  подписи платёжного провайдера, а без него любая имитация была бы произвольной.
+- **Многопозиционные заказы** не поддерживаются — модель заказа рассчитана на один SKU
+  и `quantity=1` (ограничение `CHECK` в схеме); задание описывает выдачу одного кода/ключа
+  на заказ, расширение до корзины не требовалось.
+- **Полнотекстовый/нечёткий поиск по каталогу** — `GET /catalog?q=` делает простой `ILIKE`,
+  без `pg_trgm`/полнотекстовых индексов: для 12 SKU в каталоге это не бутылочное горлышко,
+  а полноценный поиск относится к этапу 5 (каталог под нагрузкой), который вне скоупа.
