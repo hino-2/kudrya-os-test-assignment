@@ -100,4 +100,4 @@ Write-Host "   curl -s http://localhost:3000/catalog | head -c 300" -ForegroundC
 Write-Host "   npm run race -- --sku KEY-GTA5 --count 50" -ForegroundColor Gray
 Write-Host ""
 Write-Host "To stop: docker compose down" -ForegroundColor Yellow
-Write-Host "To seed catalog later: npm run seed:catalog" -ForegroundColor Yellow
+Write-Host "To seed catalog: npm run seed:catalog" -ForegroundColor Yellow
