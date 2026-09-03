@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-NO_SEED=false
+SEED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --no-seed)
-            NO_SEED=true
+        --seed)
+            SEED=true
             shift
             ;;
         *)
@@ -69,7 +69,7 @@ done
 echo "⏳ Waiting for migrations to complete in api container..."
 sleep 3
 
-if [ "$NO_SEED" != "true" ]; then
+if [ "$SEED" = "true" ]; then
     echo "🌱 Seeding catalog..."
     npm run seed:catalog
     echo "✅ Catalog seeded!"

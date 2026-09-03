@@ -1,6 +1,6 @@
 # Start all containers and set up the project
 param(
-    [switch]$NoSeed = $false
+    [switch]$Seed = $false
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,7 +75,7 @@ while ($attempts -lt 20) {
 Write-Host "⏳ Waiting for migrations to complete in api container..." -ForegroundColor Yellow
 Start-Sleep -Seconds 3
 
-if (-not $NoSeed) {
+if ($Seed) {
     Write-Host "🌱 Seeding catalog..." -ForegroundColor Cyan
     npm run seed:catalog
     if (-not $?) {
