@@ -24,11 +24,13 @@ export class CatalogService {
 
   async list(query: ListCatalogQueryDto): Promise<CatalogPageResponseDto> {
     const filter = resolveListFilter(query, this.config.catalog);
-    const page = await this.logger.timed(
-      LOG_EVENT.CATALOG_QUERY,
-      { type: filter.type, in_stock: filter.inStockOnly, limit: filter.limit, q: query.q ?? null },
-      () => this.repository.findPage(filter),
-    );
+    const page = await this.repository.findPage(filter);
+    this.logger.event(LOG_EVENT.CATALOG_QUERY, {
+      type: filter.type,
+      in_stock: filter.inStockOnly,
+      limit: filter.limit,
+      q: query.q ?? null,
+    });
 
     return toCatalogPage(page, filter.limit);
   }
@@ -39,6 +41,8 @@ export class CatalogService {
     if (row === null) {
       throw new DomainError(ERROR_CODE.PRODUCT_NOT_FOUND, undefined, { sku });
     }
+
+    this.logger.event(LOG_EVENT.CATALOG_QUERY, { sku });
 
     return toCatalogItem(row);
   }
