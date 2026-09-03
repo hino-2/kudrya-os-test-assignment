@@ -29,32 +29,33 @@ chmod +x start.sh
 - Проверят наличие `.env` (создадут из `.env.example`, если нужно)
 - Запустят `docker compose up -d`
 - Дождутся готовности PostgreSQL и API
-- Запустят миграции (`npm run migration:run`)
 - Засеют каталог (`npm run seed:catalog`)
-- Выведут адреса всех сервисов и примеры проверок
+- Выведят адреса всех сервисов и примеры проверок
+
+**Миграции запускаются автоматически внутри контейнера `api`** при его старте (через `docker-entrypoint.sh`).
 
 Флаги (опционально):
-- `--no-migrations` — пропустить миграции
 - `--no-seed` — пропустить сидинг каталога
 
 ```bash
-./start.sh --no-migrations --no-seed  # только поднять контейнеры
+./start.sh --no-seed  # только поднять контейнеры
 ```
 
-### 1.1 Через docker compose
+### 1.1 Через docker compose (ручной запуск)
 
 ```bash
 cp .env.example .env
 docker compose up -d
-npm ci
-npm run migration:run
-npm run seed:catalog
+npm ci  # устанавливает зависимости на хосте для CLI-инструментов (race, webhook)
+npm run seed:catalog  # опционально, засевает каталог
 ```
 
 `docker-compose.yml` поднимает `postgres` (порт `5432`), `api` (`3000`) и два экземпляра
 `supplier-stub` — `supplier-a` (`4001`) и `supplier-b` (`4002`), собранные из одного образа с
 разными `SUPPLIER_ID`/`PORT`. `api` и оба стенда ждут health-чек `postgres` (`pg_isready`) перед
 стартом.
+
+**Миграции запускаются автоматически внутри контейнера `api`** при его запуске, поэтому отдельно `npm run migration:run` не нужен.
 
 Проверка, что стенд поднялся:
 

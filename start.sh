@@ -1,15 +1,10 @@
 #!/bin/bash
 set -e
 
-NO_MIGRATIONS=false
 NO_SEED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --no-migrations)
-            NO_MIGRATIONS=true
-            shift
-            ;;
         --no-seed)
             NO_SEED=true
             shift
@@ -71,11 +66,8 @@ while [ $attempts -lt 20 ]; do
     ((attempts++))
 done
 
-if [ "$NO_MIGRATIONS" != "true" ]; then
-    echo "🔧 Running migrations..."
-    npm run migration:run
-    echo "✅ Migrations completed!"
-fi
+echo "⏳ Waiting for migrations to complete in api container..."
+sleep 3
 
 if [ "$NO_SEED" != "true" ]; then
     echo "🌱 Seeding catalog..."

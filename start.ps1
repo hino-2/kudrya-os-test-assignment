@@ -1,6 +1,5 @@
 # Start all containers and set up the project
 param(
-    [switch]$NoMigrations = $false,
     [switch]$NoSeed = $false
 )
 
@@ -73,15 +72,8 @@ while ($attempts -lt 20) {
     $attempts++
 }
 
-if (-not $NoMigrations) {
-    Write-Host "🔧 Running migrations..." -ForegroundColor Cyan
-    npm run migration:run
-    if (-not $?) {
-        Write-Host "❌ Migration failed." -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "✅ Migrations completed!" -ForegroundColor Green
-}
+Write-Host "⏳ Waiting for migrations to complete in api container..." -ForegroundColor Yellow
+Start-Sleep -Seconds 3
 
 if (-not $NoSeed) {
     Write-Host "🌱 Seeding catalog..." -ForegroundColor Cyan

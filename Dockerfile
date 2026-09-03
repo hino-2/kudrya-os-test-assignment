@@ -21,6 +21,8 @@ COPY tools/package.json tools/package.json
 RUN npm ci --omit=dev
 COPY --from=build /workspace/apps/api/dist apps/api/dist
 COPY --from=build /workspace/apps/supplier-stub/dist apps/supplier-stub/dist
+COPY apps/api/docker-entrypoint.sh /workspace/apps/api/docker-entrypoint.sh
+RUN chmod +x /workspace/apps/api/docker-entrypoint.sh
 RUN addgroup -S app && adduser -S app -G app
 USER app
 CMD ["node", "apps/api/dist/main.js"]
