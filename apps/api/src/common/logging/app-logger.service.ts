@@ -51,35 +51,6 @@ export class AppLoggerService {
     return this.store.run({ ...current, ...patch, trace_id: traceId }, fn);
   }
 
-  async timed<T>(name: LogEventName, data: LogData, fn: () => Promise<T>): Promise<T> {
-    const startedAt = performance.now();
-
-    try {
-      const result = await fn();
-
-      this.logger.write({
-        level: LOG_EVENT_LEVEL[name],
-        event: name,
-        ctx: this.ctx,
-        duration_ms: Math.round(performance.now() - startedAt),
-        data,
-      });
-
-      return result;
-    } catch (err) {
-      this.logger.write({
-        level: 'error',
-        event: `${name}.failed`,
-        ctx: this.ctx,
-        duration_ms: Math.round(performance.now() - startedAt),
-        data,
-        err,
-      });
-
-      throw err;
-    }
-  }
-
   private resolveDefaultContext(inquirer: object | string): string {
     if (typeof inquirer === 'string') {
       return inquirer;
