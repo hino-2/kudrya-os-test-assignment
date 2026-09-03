@@ -18,7 +18,7 @@ if [ $timeout -eq 0 ]; then
 fi
 
 echo "🔧 Running migrations..."
-npm run migration:run
+node node_modules/typeorm/cli.js migration:run -d apps/api/dist/common/db/data-source.js
 
 echo "🚀 Starting application..."
 exec node apps/api/dist/main.js
