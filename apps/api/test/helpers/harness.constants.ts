@@ -207,3 +207,9 @@ export const PRODUCT_SNAPSHOT_SQL = `
   JOIN sku_stock s ON s.product_id = p.id
   WHERE p.sku = $1
 `;
+
+export const WAIT_FOR_DEFAULT_STEP_MS = 25;
+
+export const WAIT_FOR_DEFAULT_TIMEOUT_MS = 5000;
+
+export const WAIT_FOR_DEFAULT_TIMEOUT_MESSAGE = 'Условие не выполнилось за отведённое время';

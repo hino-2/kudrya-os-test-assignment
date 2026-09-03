@@ -35,3 +35,9 @@ export interface ISeedCliResult {
   stdout: string;
   stderr: string;
 }
+
+export interface IWaitForOptions {
+  stepMs?: number;
+  timeoutMs?: number;
+  message?: string;
+}
