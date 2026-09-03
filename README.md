@@ -229,6 +229,12 @@ npm run test:integration -- webhook-race
   (восстанавливая `normal` по завершении), шлёт N параллельных вебхуков оплаты с разными
   `event_id` на один заказ и печатает таблицу PASS/FAIL по HTTP-ответам, факту доставки и (по
   умолчанию) прямым SQL-проверкам через `DATABASE_URL`.
+- `npm run demo:fallback -- ...` — сквозная HTTP-демонстрация сценария §4.1 (отказ поставщика A →
+  фолбэк на B): принудительно выставляет заглушкам сценарии (B всегда `ok`, A — по `--fail-mode
+  error_5xx|bad_request|stopped`), создаёт/оплачивает заказ, дожидается терминального статуса и
+  печатает таблицу PASS/FAIL по 11 проверкам (режим SKU, оплата, доставка от B, состав
+  `delivery_attempts`, счётчики выдачи заглушек), восстанавливая сценарии в `normal` по
+  завершении. Полный список опций — `npm run demo:fallback -- --help`.
 
 Шаги:
 
@@ -277,6 +283,14 @@ npm run race -- --order ord_00123 --count 50
 5. `pickSupplier` видит определённую неудачу по A и сразу (в той же claim-джобы, без отдельного ретрая) переходит к B — `POST /issue` к B отрабатывает штатно.
 6. Заказ переходит в `delivered`; в `delivery_attempts` — две строки: `A/attempt_no=1/failed/connection_refused` и `B/attempt_no=1/succeeded`, с разными `request_id` (см. таблицу §5.5).
 7. Проверить: `SELECT supplier_code, state, error_kind FROM delivery_attempts da JOIN orders o ON o.id=da.order_id WHERE o.ext_id=$1 ORDER BY da.id;`
+
+Шаги 2–7 выше воспроизводятся одной командой — `npm run demo:fallback -- --fail-mode stopped`
+(вариант `--fail-mode stopped` соответствует ручной остановке `docker compose stop supplier-a`;
+есть также `error_5xx`/`bad_request`, эмулирующие ту же определённую неудачу без остановки
+контейнера). По умолчанию используется `error_5xx`, а не `refuse` (эмуляция `ECONNRESET`): такой
+обрыв классифицируется как `error_kind='unknown'` и по дизайну НЕ переключает `pickSupplier` на
+B — демо с ним либо зависло бы в ожидании `delivered`, либо ошибочно сообщило о провале там, где
+система ведёт себя штатно (см. §4.2/§5.5 про `unknown`-исходы и `settleUnknown`).
 
 Тем же сценарием (без docker) покрыт `apps/api/test/integration/supplier-delivery-fallback.worker.spec.ts` — там A стартует на фиксированном тестовом порту и сразу останавливается, что даёт настоящий `ECONNREFUSED` от ОС (не эмулируемый заглушкой сценарий), и проверяет ровно эти два ряда в `delivery_attempts` плюс запись в `issued_deliveries` с `supplier_code='B'`.
 
