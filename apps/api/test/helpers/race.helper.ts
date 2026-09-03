@@ -1,6 +1,5 @@
 import type { DataSource } from 'typeorm';
 
-import type { IControlStateResponse } from '@store/supplier-stub/src/control/control.interfaces';
 import { JOB_STATE } from '../../src/jobs/jobs.constants';
 import { buildDeliverOrderDedupeKey } from '../../src/jobs/jobs.util';
 import type { IJobRow } from '../../src/jobs/jobs.interfaces';
@@ -10,8 +9,6 @@ import type { IStubHarness } from './harness.interfaces';
 import { waitFor } from './wait-for';
 import {
   CONTROL_RESET_PATH,
-  CONTROL_SCENARIO_PATH,
-  CONTROL_STATE_PATH,
   RACE_CURRENCY,
   RACE_EVENT_ID_PREFIX,
   RACE_FIRST_SUPPLIER_ATTEMPT_NO,
@@ -147,16 +144,6 @@ export async function waitForDelivered(dataSource: DataSource, extId: string): P
 // delivery_generation=0 (см. миграцию InitCore, DEFAULT 0) на поставщике A, attempt_no=1
 export function expectedRequestId(extId: string): string {
   return buildSupplierRequestId(extId, RACE_INITIAL_DELIVERY_GENERATION, SUPPLIER_CODE.A, RACE_FIRST_SUPPLIER_ATTEMPT_NO);
-}
-
-export async function readStubState(stub: IStubHarness): Promise<IControlStateResponse> {
-  const response = await fetch(`${stub.baseUrl}${CONTROL_STATE_PATH}`);
-
-  return (await response.json()) as IControlStateResponse;
-}
-
-export async function forceStubScenario(stub: IStubHarness, mode: string, times = 1): Promise<void> {
-  await post(stub.baseUrl, CONTROL_SCENARIO_PATH, { mode, times });
 }
 
 export async function resetStub(stub: IStubHarness): Promise<void> {

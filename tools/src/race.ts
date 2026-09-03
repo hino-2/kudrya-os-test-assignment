@@ -102,12 +102,13 @@ function buildRaceEvents(target: IRaceTarget, count: number, baseCreatedAtMs: nu
   return events;
 }
 
-function parseCliOptions(argv: string[]): IRaceCliOptions {
+function parseCliOptions(argv: string[]): IRaceCliOptions | undefined {
   const args = parseArgs(argv);
 
   if (hasArg(args, 'help')) {
     console.log(HELP_TEXT);
-    process.exit(0);
+    process.exitCode = 0;
+    return undefined;
   }
 
   const order = stringArg(args, 'order');
@@ -370,6 +371,11 @@ async function main(): Promise<void> {
   loadDotEnv();
 
   const options = parseCliOptions(process.argv.slice(2));
+
+  if (options === undefined) {
+    return;
+  }
+
   const target = await resolveTarget(options);
 
   console.log(`Гонка против заказа ${target.extId}: ${options.count} параллельных вебхуков, amount=${target.amountMajor} ${target.currency}`);

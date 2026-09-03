@@ -1,10 +1,6 @@
 export const WEBHOOK_PAYMENT_PATH = '/webhooks/payment';
 
-export const CONTROL_SCENARIO_PATH = '/_control/scenario';
-
 export const CONTROL_RESET_PATH = '/_control/reset';
-
-export const CONTROL_STATE_PATH = '/_control/state';
 
 export const RACE_EVENT_ID_PREFIX = 'evt_race_';
 

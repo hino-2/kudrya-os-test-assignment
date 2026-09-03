@@ -22,12 +22,13 @@ function isPaymentStatus(value: string): value is WebhookPaymentStatus {
   return value === PAYMENT_STATUS.PAID || value === PAYMENT_STATUS.FAILED;
 }
 
-function buildOptions(argv: string[]): IWebhookCliOptions {
+function buildOptions(argv: string[]): IWebhookCliOptions | undefined {
   const args = parseArgs(argv);
 
   if (hasArg(args, 'help')) {
     console.log(HELP_TEXT);
-    process.exit(0);
+    process.exitCode = 0;
+    return undefined;
   }
 
   const order = stringArg(args, 'order');
@@ -80,6 +81,11 @@ async function main(): Promise<void> {
   loadDotEnv();
 
   const options = buildOptions(process.argv.slice(2));
+
+  if (options === undefined) {
+    return;
+  }
+
   const payload = buildPayload(options);
   const url = `${options.apiBaseUrl}${WEBHOOK_PAYMENT_PATH}`;
 
