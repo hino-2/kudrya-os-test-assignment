@@ -51,3 +51,27 @@ export const SYNC_PRODUCT_IN_STOCK_SQL = `
   FROM sku_stock s
   WHERE s.product_id = p.id AND p.id = $1
 `;
+
+// admin restock (§7.3 admin endpoints): блокирует товар + строку остатка по SKU перед пополнением
+export const LOCK_PRODUCT_STOCK_BY_SKU_SQL = `
+  SELECT p.id, p.sku, p.fulfillment_mode, s.available_count
+  FROM products p
+  JOIN sku_stock s ON s.product_id = p.id
+  WHERE p.sku = $1
+  FOR UPDATE OF p, s
+`;
+
+export const INSERT_RESTOCK_KEYS_SQL = `
+  INSERT INTO stock_keys (product_id, code, status, batch)
+  SELECT $1, code, 'available', $3 FROM unnest($2::text[]) AS code
+  ON CONFLICT (product_id, code) DO NOTHING
+  RETURNING id
+`;
+
+export const BUMP_AVAILABLE_COUNT_SQL = `
+  UPDATE sku_stock SET available_count = available_count + $2, updated_at = now()
+  WHERE product_id = $1
+  RETURNING available_count
+`;
+
+export const RESTOCK_BATCH = 'admin';

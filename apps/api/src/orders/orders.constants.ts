@@ -195,3 +195,44 @@ export const ORDER_DELIVERY_ATTEMPTS_SQL = `
   WHERE order_id = $1
   ORDER BY id
 `;
+
+// sweeper pass 2 (§7.3): paid/delivering дольше stuckOrderAgeSeconds, без issued_deliveries и
+// без живой deliver_order job — не бьёт по заказу, реально ещё в полёте (см. README §4.3)
+export const ORDER_FIND_STUCK_PAID_DELIVERING_SQL = `
+  SELECT o.id, o.ext_id, o.delivery_generation
+  FROM orders o
+  WHERE o.paid_at IS NOT NULL
+    AND o.status IN ('paid','delivering')
+    AND o.updated_at < now() - ($1 || ' seconds')::interval
+    AND NOT EXISTS (SELECT 1 FROM issued_deliveries d WHERE d.order_id = o.id)
+    AND NOT EXISTS (
+      SELECT 1 FROM jobs j
+      WHERE j.kind = 'deliver_order' AND j.dedupe_key = 'order:' || o.ext_id AND j.state IN ('pending','running')
+    )
+  ORDER BY o.updated_at
+  FOR UPDATE OF o SKIP LOCKED
+  LIMIT $2
+`;
+
+// sweeper pass 3: out_of_stock с восполненным остатком — немедленный повтор
+export const ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL = `
+  SELECT o.id, o.ext_id, o.status, o.delivery_generation
+  FROM orders o
+  JOIN sku_stock s ON s.product_id = o.product_id
+  WHERE o.status = 'out_of_stock' AND s.available_count > 0
+  ORDER BY o.updated_at
+  FOR UPDATE OF o SKIP LOCKED
+  LIMIT $1
+`;
+
+// sweeper pass 4: delivery_failed старше deliveryFailedRetrySeconds, под потолком поколений
+export const ORDER_FIND_RETRYABLE_DELIVERY_FAILED_SQL = `
+  SELECT o.id, o.ext_id, o.status, o.delivery_generation
+  FROM orders o
+  WHERE o.status = 'delivery_failed'
+    AND o.updated_at < now() - ($1 || ' seconds')::interval
+    AND o.delivery_generation < $2
+  ORDER BY o.updated_at
+  FOR UPDATE OF o SKIP LOCKED
+  LIMIT $3
+`;

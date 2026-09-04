@@ -65,6 +65,8 @@ export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   // воркер по умолчанию выключен в интеграционных тестах — сьюты включают его явно через envOverrides,
   // иначе фоновый 200ms tick гоняется во всех сьютах и мешает teardown (гонка с app.close())
   WORKER_ENABLED: 'false',
+  // тот же довод, что для WORKER_ENABLED: sweeper.e2e.spec.ts включает свипер явно через envOverrides
+  SWEEPER_ENABLED: 'false',
 };
 
 export const RESET_DATABASE_SQL = `

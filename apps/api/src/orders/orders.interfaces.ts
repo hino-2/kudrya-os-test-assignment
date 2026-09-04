@@ -105,3 +105,16 @@ export interface IOrderDetail {
 export interface IExtIdRow {
   ext_id: string;
 }
+
+export interface IStuckDeliveryOrderRow {
+  id: number;
+  ext_id: string;
+  delivery_generation: number;
+}
+
+export interface IRecoverableOrderRow {
+  id: number;
+  ext_id: string;
+  status: OrderStatus;
+  delivery_generation: number;
+}

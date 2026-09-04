@@ -6,8 +6,10 @@ import { DomainError } from '../common/errors/domain.error';
 import { ERROR_CODE } from '../common/errors/errors.constants';
 import {
   DELIVERY_TRANSACTION_REQUIRED_MESSAGE,
+  DEMOTE_STALE_INFLIGHT_SQL,
   FIND_ATTEMPTS_BY_ORDER_SQL,
   FIND_OPEN_ATTEMPT_SQL,
+  FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL,
   FINALIZE_ATTEMPT_FAILED_SQL,
   FINALIZE_ATTEMPT_SUCCEEDED_SQL,
   INSERT_DELIVERY_ATTEMPT_SQL,
@@ -21,6 +23,8 @@ import type {
   IFinalizeAttemptSucceededInput,
   IInsertDeliveryAttemptInput,
   IPromoteAttemptToUnknownInput,
+  IResolvableAttemptRow,
+  IStaleInflightAttemptRow,
 } from './delivery.interfaces';
 
 @Injectable()
@@ -107,6 +111,23 @@ export class DeliveryAttemptRepository {
     const rows = await this.runUpdate<{ id: number }>(MARK_ATTEMPT_ABANDONED_SQL, [attemptId], qr);
 
     return rows.length > 0;
+  }
+
+  async demoteStaleInFlight(
+    qr: QueryRunner,
+    timeoutMs: number,
+    errorReason: string,
+    limit: number,
+  ): Promise<IStaleInflightAttemptRow[]> {
+    this.assertTransaction(qr);
+
+    return this.runUpdate<IStaleInflightAttemptRow>(DEMOTE_STALE_INFLIGHT_SQL, [timeoutMs, errorReason, limit], qr);
+  }
+
+  async findResolvableUnknown(qr: QueryRunner, limit: number): Promise<IResolvableAttemptRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IResolvableAttemptRow>(FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL, [limit], qr);
   }
 
   // CAS-транзиции и блокирующие SELECT вне транзакции теряют блокировку на границе оператора.

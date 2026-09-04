@@ -89,6 +89,9 @@ export const LOG_EVENT = {
   HTTP_REQUEST: 'http.request',
   HTTP_ERROR: 'http.error',
   DB_CONNECTED: 'db.connected',
+  SWEEPER_TICK_FAILED: 'sweeper.tick_failed',
+  ADMIN_RESTOCK: 'admin.restock',
+  ADMIN_REDELIVER: 'admin.redeliver',
 } as const;
 
 export const LOG_EVENT_LEVEL: Readonly<Record<LogEventName, LogLevel>> = {
@@ -137,4 +140,7 @@ export const LOG_EVENT_LEVEL: Readonly<Record<LogEventName, LogLevel>> = {
   [LOG_EVENT.HTTP_REQUEST]: 'info',
   [LOG_EVENT.HTTP_ERROR]: 'error',
   [LOG_EVENT.DB_CONNECTED]: 'info',
+  [LOG_EVENT.SWEEPER_TICK_FAILED]: 'error',
+  [LOG_EVENT.ADMIN_RESTOCK]: 'warn',
+  [LOG_EVENT.ADMIN_REDELIVER]: 'warn',
 };

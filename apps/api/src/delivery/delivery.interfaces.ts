@@ -138,3 +138,17 @@ export interface ISettleStepContinue {
   kind: 'continue';
   sleepMs: number | null;
 }
+
+export interface IStaleInflightAttemptRow {
+  id: number;
+  order_id: number;
+  supplier_code: SupplierCode;
+  attempt_no: number;
+}
+
+export interface IResolvableAttemptRow {
+  id: number;
+  order_id: number;
+  ext_id: string;
+  delivery_generation: number;
+}

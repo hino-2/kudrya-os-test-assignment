@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration && vitest run --project integration-worker",
+    "test:integration": "vitest run --project integration && vitest run --project integration-worker && vitest run --project integration-sweeper && vitest run --project integration-admin-disabled && vitest run --project integration-admin-open",
     "migration:run": "tsx ../../node_modules/typeorm/cli.js migration:run -d src/common/db/data-source.ts",
     "migration:revert": "tsx ../../node_modules/typeorm/cli.js migration:revert -d src/common/db/data-source.ts"
   },

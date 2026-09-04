@@ -11,6 +11,6 @@ import { PaymentWebhookService } from './payment-webhook.service';
   imports: [OrdersModule, LedgerModule, JobsModule],
   controllers: [PaymentWebhookController],
   providers: [PaymentWebhookService, PaymentEventsRepository],
-  exports: [PaymentWebhookService],
+  exports: [PaymentWebhookService, PaymentEventsRepository],
 })
 export class PaymentsModule {}

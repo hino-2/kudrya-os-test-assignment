@@ -31,6 +31,6 @@ import { SupplierFulfilmentService } from './supplier-fulfilment.service';
     DeliveryService,
     DeliverOrderHandler,
   ],
-  exports: [DeliveryService, DeliverOrderHandler],
+  exports: [DeliveryService, DeliverOrderHandler, DeliveryAttemptRepository],
 })
 export class DeliveryModule {}

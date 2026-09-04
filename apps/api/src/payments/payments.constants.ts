@@ -88,3 +88,26 @@ export const IGNORED_EVENT_REASON_TEMPLATE = 'Событие проигнори�
 
 export const CONFLICT_EVENT_REASON_TEMPLATE =
   'Конфликт: заказ в статусе %s, входящее событие %s противоречит текущему состоянию';
+
+// sweeper pass 6a: orphan-события, для которых заказ уже появился — идёт через idx_payment_events_orphan
+export const PAYMENT_FIND_REPLAYABLE_ORPHANS_SQL = `
+  SELECT pe.id, pe.event_id, pe.order_ext_id, pe.status, pe.amount_minor, pe.currency,
+         pe.occurred_at, pe.raw_payload, pe.trace_id
+  FROM payment_events pe
+  JOIN orders o ON o.ext_id = pe.order_ext_id
+  WHERE pe.state = 'orphan'
+  ORDER BY pe.received_at
+  FOR UPDATE OF pe SKIP LOCKED
+  LIMIT $1
+`;
+
+// sweeper pass 6b: orphan-события старше orphanTtlSeconds без заказа — абандон
+export const PAYMENT_FIND_ABANDONABLE_ORPHANS_SQL = `
+  SELECT id FROM payment_events
+  WHERE state = 'orphan' AND received_at < now() - ($1 || ' seconds')::interval
+  ORDER BY received_at
+  FOR UPDATE SKIP LOCKED
+  LIMIT $2
+`;
+
+export const ORPHAN_ABANDONED_REASON = 'sweeper: orphan ttl exceeded, order never appeared';

@@ -8,6 +8,9 @@ import {
   ORDER_DELIVERY_ATTEMPTS_SQL,
   ORDER_DELIVERY_SQL,
   ORDER_EXT_ID_LOST_MESSAGE,
+  ORDER_FIND_RETRYABLE_DELIVERY_FAILED_SQL,
+  ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL,
+  ORDER_FIND_STUCK_PAID_DELIVERING_SQL,
   ORDER_INSERT_SQL,
   ORDER_LOCK_BY_EXT_ID_SQL,
   ORDER_NEXT_EXT_ID_SQL,
@@ -26,6 +29,8 @@ import type {
   IOrderRow,
   IPaymentEventRow,
   IProductSnapshotRow,
+  IRecoverableOrderRow,
+  IStuckDeliveryOrderRow,
 } from './orders.interfaces';
 import type { OrderStatus } from './orders.type';
 
@@ -125,6 +130,33 @@ export class OrdersRepository {
 
   async findDeliveryAttempts(orderId: number): Promise<IDeliveryAttemptRow[]> {
     return this.run<IDeliveryAttemptRow>(ORDER_DELIVERY_ATTEMPTS_SQL, [orderId]);
+  }
+
+  async findStuckPaidDelivering(qr: QueryRunner, ageSeconds: number, limit: number): Promise<IStuckDeliveryOrderRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IStuckDeliveryOrderRow>(ORDER_FIND_STUCK_PAID_DELIVERING_SQL, [ageSeconds, limit], qr);
+  }
+
+  async findRetryableOutOfStock(qr: QueryRunner, limit: number): Promise<IRecoverableOrderRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IRecoverableOrderRow>(ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL, [limit], qr);
+  }
+
+  async findRetryableDeliveryFailed(
+    qr: QueryRunner,
+    retrySeconds: number,
+    maxGenerations: number,
+    limit: number,
+  ): Promise<IRecoverableOrderRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IRecoverableOrderRow>(
+      ORDER_FIND_RETRYABLE_DELIVERY_FAILED_SQL,
+      [retrySeconds, maxGenerations, limit],
+      qr,
+    );
   }
 
   // FOR UPDATE и CAS-UPDATE вне транзакции теряют блокировку на границе оператора.

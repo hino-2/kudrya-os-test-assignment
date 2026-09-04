@@ -154,3 +154,33 @@ export const MARK_ATTEMPT_ABANDONED_SQL = `
   WHERE id = $1 AND state = 'unknown'
   RETURNING id
 `;
+
+// sweeper pass 5a: попытки, зависшие в in_flight дольше attemptInflightTimeoutMs — воркер,
+// скорее всего, умер после TX-S1 коммита, не успев дождаться ответа поставщика. Нет
+// специализированного индекса под этот скан (см. README §4.3, осознанный компромисс).
+export const DEMOTE_STALE_INFLIGHT_SQL = `
+  UPDATE delivery_attempts a
+  SET state = 'unknown', error_kind = 'inflight_expired', error_reason = $2,
+      resolve_attempts = resolve_attempts + 1, next_resolve_at = now(), updated_at = now()
+  FROM (
+    SELECT id FROM delivery_attempts
+    WHERE state = 'in_flight' AND started_at < now() - ($1 || ' milliseconds')::interval
+    ORDER BY id
+    FOR UPDATE SKIP LOCKED
+    LIMIT $3
+  ) stale
+  WHERE a.id = stale.id
+  RETURNING a.id, a.order_id, a.supplier_code, a.attempt_no
+`;
+
+// sweeper pass 5b: unknown-попытки, готовые к передозвону поставщику — идёт через
+// idx_delivery_attempts_resolvable
+export const FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL = `
+  SELECT a.id, a.order_id, o.ext_id, o.delivery_generation
+  FROM delivery_attempts a
+  JOIN orders o ON o.id = a.order_id
+  WHERE a.state = 'unknown' AND a.next_resolve_at <= now()
+  ORDER BY a.next_resolve_at
+  FOR UPDATE OF a SKIP LOCKED
+  LIMIT $1
+`;

@@ -7,9 +7,16 @@ import { ERROR_CODE } from '../common/errors/errors.constants';
 import {
   PAYMENT_EVENT_FINALISE_SQL,
   PAYMENT_EVENT_INSERT_SQL,
+  PAYMENT_FIND_ABANDONABLE_ORPHANS_SQL,
+  PAYMENT_FIND_REPLAYABLE_ORPHANS_SQL,
   PAYMENT_TRANSACTION_REQUIRED_MESSAGE,
 } from './payments.constants';
-import type { IPaymentEventFinalisation, IPaymentEventIdRow, IPaymentEventInput } from './payments.interfaces';
+import type {
+  IOrphanEventRow,
+  IPaymentEventFinalisation,
+  IPaymentEventIdRow,
+  IPaymentEventInput,
+} from './payments.interfaces';
 
 @Injectable()
 export class PaymentEventsRepository {
@@ -51,6 +58,18 @@ export class PaymentEventsRepository {
       ],
       qr,
     );
+  }
+
+  async findReplayableOrphans(qr: QueryRunner, limit: number): Promise<IOrphanEventRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IOrphanEventRow>(PAYMENT_FIND_REPLAYABLE_ORPHANS_SQL, [limit], qr);
+  }
+
+  async findAbandonableOrphans(qr: QueryRunner, ttlSeconds: number, limit: number): Promise<IPaymentEventIdRow[]> {
+    this.assertTransaction(qr);
+
+    return this.run<IPaymentEventIdRow>(PAYMENT_FIND_ABANDONABLE_ORPHANS_SQL, [ttlSeconds, limit], qr);
   }
 
   private assertTransaction(qr: QueryRunner): void {

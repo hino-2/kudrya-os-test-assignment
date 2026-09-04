@@ -3,6 +3,7 @@ import type { MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 
+import { AdminModule } from './admin/admin.module';
 import { CatalogModule } from './catalog/catalog.module';
 import { AppConfigModule } from './common/config/config.module';
 import { DatabaseModule } from './common/db/database.module';
@@ -17,6 +18,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { LedgerModule } from './ledger/ledger.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { ReconciliationModule } from './reconciliation/reconciliation.module';
 
 @Module({
   imports: [
@@ -32,6 +34,8 @@ import { PaymentsModule } from './payments/payments.module';
     DeliveryModule,
     JobsModule,
     PaymentsModule,
+    ReconciliationModule,
+    AdminModule,
   ],
   providers: [
     { provide: APP_PIPE, useClass: AppValidationPipe },

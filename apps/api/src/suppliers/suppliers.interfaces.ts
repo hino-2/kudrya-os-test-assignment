@@ -17,6 +17,10 @@ export interface ISupplierIssueErrorBody {
   reason?: string;
 }
 
+export interface ISupplierRestockRequestBody {
+  count: number;
+}
+
 export interface ISupplierIssueInput {
   supplierCode: SupplierCode;
   requestId: string;

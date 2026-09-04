@@ -25,6 +25,7 @@ export class CatalogService {
   async list(query: ListCatalogQueryDto): Promise<CatalogPageResponseDto> {
     const filter = resolveListFilter(query, this.config.catalog);
     const page = await this.repository.findPage(filter);
+
     this.logger.event(LOG_EVENT.CATALOG_QUERY, {
       type: filter.type,
       in_stock: filter.inStockOnly,

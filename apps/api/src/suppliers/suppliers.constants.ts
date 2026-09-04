@@ -28,6 +28,8 @@ export const SUPPLIER_ERROR_KIND = {
 
 export const SUPPLIER_ISSUE_PATH = '/issue';
 
+export const SUPPLIER_CONTROL_RESTOCK_PATH = '/_control/restock';
+
 export const SUPPLIER_REQUEST_ID_PREFIX = 'req_';
 
 export const SUPPLIER_ORDER_EXT_PREFIX = 'ord_';

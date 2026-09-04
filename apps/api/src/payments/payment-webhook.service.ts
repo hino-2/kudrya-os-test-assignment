@@ -111,6 +111,10 @@ export class PaymentWebhookService {
       };
     }
 
+    return this.applyPersistedEvent(qr, eventId, input);
+  }
+
+  async applyPersistedEvent(qr: QueryRunner, eventId: number, input: IPaymentEventInput): Promise<IWebhookOutcome> {
     const order = await this.orders.lockForUpdate(qr, input.orderExtId);
 
     if (order === null) {
