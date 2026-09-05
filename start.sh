@@ -36,7 +36,10 @@ fi
 
 # Start containers
 echo "▶️  Running docker compose up -d..."
-docker compose up -d
+if ! docker compose up -d; then
+    echo "❌ Docker compose failed."
+    exit 1
+fi
 
 echo "⏳ Waiting for postgres to be ready..."
 attempts=0
@@ -47,7 +50,9 @@ while [ $attempts -lt $max_attempts ]; do
         break
     fi
     sleep 1
-    ((attempts++))
+    # ((attempts++)) would abort the script under set -e: at attempts=0 the expression
+    # evaluates to 0, so the command exits 1. Increment via assignment instead.
+    attempts=$((attempts + 1))
 done
 
 if [ $attempts -eq $max_attempts ]; then
@@ -56,22 +61,38 @@ fi
 
 echo "⏳ Waiting for API to be ready..."
 attempts=0
-while [ $attempts -lt 20 ]; do
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/health 2>/dev/null || echo "000")
+max_api_attempts=20
+api_ready=false
+while [ $attempts -lt $max_api_attempts ]; do
+    # --max-time is required: without it a container that accepts TCP but never answers makes
+    # curl block forever, the loop never advances and the fatal check below is never reached.
+    http_code=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:3000/health 2>/dev/null || echo "000")
     if [ "$http_code" = "200" ]; then
         echo "✅ API is ready!"
+        api_ready=true
         break
     fi
     sleep 1
-    ((attempts++))
+    attempts=$((attempts + 1))
 done
+
+if [ "$api_ready" != "true" ]; then
+    echo "❌ API did not answer /health after $max_api_attempts attempts."
+    echo "   Logs: docker compose logs api"
+    exit 1
+fi
 
 echo "⏳ Waiting for migrations to complete in api container..."
 sleep 3
 
 if [ "$SEED" = "true" ]; then
     echo "🌱 Seeding catalog..."
-    npm run seed:catalog
+
+    if ! npm run seed:catalog; then
+        echo "❌ Seeding failed."
+        exit 1
+    fi
+
     echo "✅ Catalog seeded!"
 fi
 

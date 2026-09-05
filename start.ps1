@@ -58,11 +58,18 @@ if ($attempts -eq $maxAttempts) {
 
 Write-Host "Waiting for API to be ready..." -ForegroundColor Yellow
 $attempts = 0
-while ($attempts -lt 20) {
+$maxApiAttempts = 20
+$apiReady = $false
+while ($attempts -lt $maxApiAttempts) {
     try {
-        $result = curl.exe -s -o /dev/null -w "%{http_code}" http://localhost:3000/health 2>&1
+        # -o NUL, not /dev/null: on Windows curl resolves /dev/null to C:\dev\null, fails with
+        # exit 23 and never yields a status code, so the loop could never succeed.
+        # --max-time is required: without it a container that accepts TCP but never answers makes
+        # curl block forever, the loop never advances and the fatal check below is never reached.
+        $result = curl.exe -s --max-time 2 -o NUL -w "%{http_code}" http://localhost:3000/health
         if ($result -eq "200") {
             Write-Host "API is ready!" -ForegroundColor Green
+            $apiReady = $true
             break
         }
     } catch {
@@ -70,6 +77,12 @@ while ($attempts -lt 20) {
     }
     Start-Sleep -Seconds 1
     $attempts++
+}
+
+if (-not $apiReady) {
+    Write-Host "[ERROR] API did not answer /health after $maxApiAttempts attempts." -ForegroundColor Red
+    Write-Host "        Logs: docker compose logs api" -ForegroundColor Red
+    exit 1
 }
 
 Write-Host "Waiting for migrations to complete in api container..." -ForegroundColor Yellow
