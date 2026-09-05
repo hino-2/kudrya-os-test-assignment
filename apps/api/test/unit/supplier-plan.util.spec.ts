@@ -22,6 +22,7 @@ function buildAttempt(overrides: Partial<IDeliveryAttemptRow>): IDeliveryAttempt
     attempt_no: 1,
     request_id: 'req_1-g1-A1',
     sku: 'sku-1',
+    delivery_generation: 0,
     state: ATTEMPT_STATE.FAILED,
     http_status: null,
     response_code: null,

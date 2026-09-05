@@ -193,7 +193,8 @@ CREATE TABLE delivery_attempts (
   id               BIGSERIAL   PRIMARY KEY,
   order_id         BIGINT      NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
   supplier_code    TEXT        NOT NULL,
-  attempt_no       INTEGER     NOT NULL,
+  attempt_no       INTEGER     NOT NULL,          -- restarts at 1 in every delivery generation
+  delivery_generation INTEGER  NOT NULL,          -- orders.delivery_generation this attempt belongs to
   request_id       TEXT        NOT NULL,
   sku              TEXT        NOT NULL,
   state            TEXT        NOT NULL DEFAULT 'pending',
@@ -209,7 +210,7 @@ CREATE TABLE delivery_attempts (
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT delivery_attempts_request_uq UNIQUE (request_id),
-  CONSTRAINT delivery_attempts_slot_uq    UNIQUE (order_id, supplier_code, attempt_no),
+  CONSTRAINT delivery_attempts_slot_uq    UNIQUE (order_id, delivery_generation, supplier_code, attempt_no),
   CONSTRAINT delivery_attempts_supp_ck    CHECK (supplier_code IN ('A','B')),
   CONSTRAINT delivery_attempts_state_ck   CHECK (state IN
       ('pending','in_flight','succeeded','failed','unknown','abandoned_unknown')),

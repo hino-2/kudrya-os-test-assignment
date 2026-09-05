@@ -77,6 +77,7 @@ export class AppConfigService {
       intervalMs: configService.get('SWEEPER_INTERVAL_MS', { infer: true }),
       batchSize: configService.get('SWEEPER_BATCH_SIZE', { infer: true }),
       stuckOrderAgeSeconds: configService.get('STUCK_ORDER_AGE_SECONDS', { infer: true }),
+      outOfStockRetrySeconds: configService.get('OUT_OF_STOCK_RETRY_SECONDS', { infer: true }),
       deliveryFailedRetrySeconds: configService.get('DELIVERY_FAILED_RETRY_SECONDS', { infer: true }),
       maxDeliveryGenerations: configService.get('MAX_DELIVERY_GENERATIONS', { infer: true }),
       attemptInflightTimeoutMs: configService.get('ATTEMPT_INFLIGHT_TIMEOUT_MS', { infer: true }),

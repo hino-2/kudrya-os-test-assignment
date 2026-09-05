@@ -39,10 +39,14 @@ export class DeliveryAttemptRepository {
     return rows[0] ?? null;
   }
 
-  async findAttemptsByOrder(qr: QueryRunner, orderId: number): Promise<IDeliveryAttemptRow[]> {
+  async findAttemptsByOrder(
+    qr: QueryRunner,
+    orderId: number,
+    deliveryGeneration: number,
+  ): Promise<IDeliveryAttemptRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IDeliveryAttemptRow>(FIND_ATTEMPTS_BY_ORDER_SQL, [orderId], qr);
+    return this.run<IDeliveryAttemptRow>(FIND_ATTEMPTS_BY_ORDER_SQL, [orderId, deliveryGeneration], qr);
   }
 
   // возвращает null при конфликте с открытой попыткой того же заказа (частичный уникальный
@@ -52,7 +56,7 @@ export class DeliveryAttemptRepository {
 
     const rows = await this.run<IDeliveryAttemptRow>(
       INSERT_DELIVERY_ATTEMPT_SQL,
-      [input.orderId, input.supplierCode, input.attemptNo, input.requestId, input.sku],
+      [input.orderId, input.supplierCode, input.attemptNo, input.requestId, input.sku, input.deliveryGeneration],
       qr,
     );
 

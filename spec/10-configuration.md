@@ -39,6 +39,7 @@
 | `SWEEPER_INTERVAL_MS` | int | `15000` | sweeper period |
 | `SWEEPER_BATCH_SIZE` | int | `100` | rows per pass |
 | `STUCK_ORDER_AGE_SECONDS` | int | `60` | paid-but-undelivered threshold |
+| `OUT_OF_STOCK_RETRY_SECONDS` | int | `30` | `out_of_stock` retry age after a restock |
 | `DELIVERY_FAILED_RETRY_SECONDS` | int | `300` | `delivery_failed` retry age |
 | `MAX_DELIVERY_GENERATIONS` | int | `5` | auto-retry generations cap |
 | `ATTEMPT_INFLIGHT_TIMEOUT_MS` | int | `30000` | `in_flight` → `unknown` demotion age |

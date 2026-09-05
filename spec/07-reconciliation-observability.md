@@ -142,7 +142,7 @@ LIMIT $1;
 |---|---|---|---|
 | 1 | `jobs` where `state='running' AND locked_at < now() - JOB_LOCK_TTL_MS` | 120 s | → `pending`, `run_at = now()`, `last_error='reclaimed_stale_lock'`. Recovers from a worker crash. |
 | 2 | `orders` where `paid_at IS NOT NULL AND status IN ('paid','delivering')`, no `issued_deliveries` row, no live `deliver_order` job, `updated_at < now() - STUCK_ORDER_AGE_SECONDS` | 60 s | enqueue `deliver_order` (`ON CONFLICT DO NOTHING`), WARN `sweeper.requeued` |
-| 3 | `orders` where `status='out_of_stock'` and `sku_stock.available_count > 0` for its product | immediate | `RETRY_DELIVERY`, `delivery_generation += 1`, enqueue |
+| 3 | `orders` where `status='out_of_stock'` and `sku_stock.available_count > 0` for its product, `updated_at < now() - OUT_OF_STOCK_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 30 s / 5 gens | `RETRY_DELIVERY`, `delivery_generation += 1`, enqueue |
 | 4 | `orders` where `status='delivery_failed' AND updated_at < now() - DELIVERY_FAILED_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 300 s / 5 gens | `RETRY_DELIVERY`, enqueue |
 | 5 | `delivery_attempts` where `state='unknown' AND next_resolve_at <= now()`; plus `state='in_flight' AND started_at < now() - ATTEMPT_INFLIGHT_TIMEOUT_MS` demoted to `unknown` first | 30 s | enqueue `resolve_unknown_attempt` (`dedupe_key = 'attempt:' || id`) |
 | 6 | `payment_events` where `state='orphan'` and an order with that `ext_id` now exists → replay; `state='orphan' AND received_at < now() - ORPHAN_TTL_SECONDS` → `abandoned` | 3600 s | replay / abandon, WARN |
@@ -155,6 +155,8 @@ LIMIT $1;
 4. `issued_deliveries_order_uq` makes a second delivery fact impossible even if 1–3 all failed.
 
 Pass 2 deliberately requires `updated_at` age **and** the absence of a live job, so it can never race a delivery that is legitimately mid-flight.
+
+Pass 3 carries the same two brakes as pass 4 (age threshold + generation cap): in supplier mode a failed delivery does not zero `sku_stock`, so `available_count > 0` persists and an unbraked pass 3 would re-enqueue the same order every tick forever.
 
 ### 7.4 The money ledger that always balances
 

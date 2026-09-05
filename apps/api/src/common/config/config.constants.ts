@@ -36,6 +36,7 @@ export const ENV_SPEC: readonly IEnvVarSpec[] = [
   { name: 'SWEEPER_INTERVAL_MS', kind: 'int', default: 15000, min: 100, max: 3600000 },
   { name: 'SWEEPER_BATCH_SIZE', kind: 'int', default: 100, min: 1, max: 1000 },
   { name: 'STUCK_ORDER_AGE_SECONDS', kind: 'int', default: 60, min: 1, max: 86400 },
+  { name: 'OUT_OF_STOCK_RETRY_SECONDS', kind: 'int', default: 30, min: 1, max: 86400 },
   { name: 'DELIVERY_FAILED_RETRY_SECONDS', kind: 'int', default: 300, min: 1, max: 86400 },
   { name: 'MAX_DELIVERY_GENERATIONS', kind: 'int', default: 5, min: 1, max: 50 },
   { name: 'ATTEMPT_INFLIGHT_TIMEOUT_MS', kind: 'int', default: 30000, min: 1000, max: 600000 },

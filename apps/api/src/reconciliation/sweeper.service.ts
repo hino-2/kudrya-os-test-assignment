@@ -133,11 +133,17 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
     return count;
   }
 
-  // pass 3: out_of_stock с восполненным остатком — немедленный повтор, без порога давности
+  // pass 3: out_of_stock с восполненным остатком, старше outOfStockRetrySeconds, под потолком
+  // maxDeliveryGenerations
   private async retryOutOfStock(): Promise<number> {
     return this.unitOfWork.withTransaction((qr) =>
       this.retryRecoverableOrders(qr, () =>
-        this.orders.findRetryableOutOfStock(qr, this.config.sweeper.batchSize),
+        this.orders.findRetryableOutOfStock(
+          qr,
+          this.config.sweeper.outOfStockRetrySeconds,
+          this.config.sweeper.maxDeliveryGenerations,
+          this.config.sweeper.batchSize,
+        ),
       ),
     );
   }

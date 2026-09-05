@@ -77,8 +77,8 @@ Rejected "full jitter" (`rnd() * exp`): it can return ~0 ms, which under a wide 
 
 ```
 TX-S1  INSERT INTO delivery_attempts
-         (order_id, supplier_code, attempt_no, request_id, sku, state, started_at)
-       VALUES ($1,$2,$3, buildRequestId(ext,$2,$3), $4, 'in_flight', now())
+         (order_id, supplier_code, attempt_no, request_id, sku, delivery_generation, state, started_at)
+       VALUES ($1,$2,$3, buildRequestId(ext,$2,$3), $4, $5, 'in_flight', now())
        -- guarded by delivery_attempts_open_uq: only one live attempt per order
 COMMIT
 ---- HTTP POST /issue (no transaction held) ----
@@ -108,7 +108,7 @@ export function buildRequestId(
 Properties:
 - **Deterministic** — a pure function of three persisted values. Recomputable from `orders` + `delivery_attempts` at any time, from any process.
 - **Durable** — persisted in `delivery_attempts.request_id` with `UNIQUE`, before the call. Determinism alone is not enough: we also need to know an attempt is outstanding, and only a row can tell us that.
-- **Collision-free by construction** — `UNIQUE (order_id, supplier_code, attempt_no)` and `UNIQUE (request_id)` are mutually reinforcing.
+- **Collision-free by construction** — `UNIQUE (order_id, delivery_generation, supplier_code, attempt_no)` and `UNIQUE (request_id)` are mutually reinforcing. The fallback plan is scoped to one generation (so a restock can call a supplier again), which is why `attempt_no` restarts at 1 per generation and the slot constraint carries `delivery_generation`; `request_id` already encodes the generation, so request uniqueness is unaffected.
 
 **The rule that makes criterion 4 pass, stated as loudly as possible:**
 

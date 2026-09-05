@@ -214,15 +214,23 @@ export const ORDER_FIND_STUCK_PAID_DELIVERING_SQL = `
   LIMIT $2
 `;
 
-// sweeper pass 3: out_of_stock с восполненным остатком — немедленный повтор
+// sweeper pass 3: out_of_stock с восполненным остатком, старше outOfStockRetrySeconds и под
+// потолком поколений. Оба тормоза обязательны: finalizeExhausted в supplier-режиме не обнуляет
+// sku_stock (в отличие от пула), поэтому available_count > 0 держится постоянно — без порога
+// давности и потолка поколений каждый тик свипера гнал заказ по кругу out_of_stock → delivering.
+// Порядок параметров зеркалит pass 4: давность, потолок, лимит. Индексы: idx_orders_recoverable
+// (updated_at) WHERE status IN (...) покрывает предикат и сортировку, join идёт по PK sku_stock.
 export const ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL = `
   SELECT o.id, o.ext_id, o.status, o.delivery_generation
   FROM orders o
   JOIN sku_stock s ON s.product_id = o.product_id
-  WHERE o.status = 'out_of_stock' AND s.available_count > 0
+  WHERE o.status = 'out_of_stock'
+    AND s.available_count > 0
+    AND o.updated_at < now() - ($1 || ' seconds')::interval
+    AND o.delivery_generation < $2
   ORDER BY o.updated_at
   FOR UPDATE OF o SKIP LOCKED
-  LIMIT $1
+  LIMIT $3
 `;
 
 // sweeper pass 4: delivery_failed старше deliveryFailedRetrySeconds, под потолком поколений

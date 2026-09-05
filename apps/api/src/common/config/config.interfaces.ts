@@ -72,6 +72,7 @@ export interface ISweeperConfig {
   intervalMs: number;
   batchSize: number;
   stuckOrderAgeSeconds: number;
+  outOfStockRetrySeconds: number;
   deliveryFailedRetrySeconds: number;
   maxDeliveryGenerations: number;
   attemptInflightTimeoutMs: number;

@@ -10,6 +10,7 @@ applyTestEnv();
 process.env.SWEEPER_ENABLED = 'false';
 process.env.JOB_LOCK_TTL_MS = '1000';
 process.env.STUCK_ORDER_AGE_SECONDS = '1';
+process.env.OUT_OF_STOCK_RETRY_SECONDS = '1';
 process.env.DELIVERY_FAILED_RETRY_SECONDS = '1';
 process.env.MAX_DELIVERY_GENERATIONS = '3';
 process.env.ATTEMPT_INFLIGHT_TIMEOUT_MS = '1000';

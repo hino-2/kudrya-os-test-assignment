@@ -138,10 +138,19 @@ export class OrdersRepository {
     return this.run<IStuckDeliveryOrderRow>(ORDER_FIND_STUCK_PAID_DELIVERING_SQL, [ageSeconds, limit], qr);
   }
 
-  async findRetryableOutOfStock(qr: QueryRunner, limit: number): Promise<IRecoverableOrderRow[]> {
+  async findRetryableOutOfStock(
+    qr: QueryRunner,
+    retrySeconds: number,
+    maxGenerations: number,
+    limit: number,
+  ): Promise<IRecoverableOrderRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IRecoverableOrderRow>(ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL, [limit], qr);
+    return this.run<IRecoverableOrderRow>(
+      ORDER_FIND_RETRYABLE_OUT_OF_STOCK_SQL,
+      [retrySeconds, maxGenerations, limit],
+      qr,
+    );
   }
 
   async findRetryableDeliveryFailed(

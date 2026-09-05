@@ -17,6 +17,9 @@ export class DeliveryAttemptEntity {
   @Column({ type: 'integer', name: 'attempt_no' })
   attemptNo!: number;
 
+  @Column({ type: 'integer', name: 'delivery_generation' })
+  deliveryGeneration!: number;
+
   @Column({ type: 'text', name: 'request_id' })
   requestId!: string;
 

@@ -45,6 +45,7 @@ export interface IDeliveryAttemptRow {
   attempt_no: number;
   request_id: string;
   sku: string;
+  delivery_generation: number;
   state: AttemptState;
   http_status: number | null;
   response_code: string | null;
@@ -65,6 +66,7 @@ export interface IInsertDeliveryAttemptInput {
   attemptNo: number;
   requestId: string;
   sku: string;
+  deliveryGeneration: number;
 }
 
 export interface IFinalizeAttemptSucceededInput {

@@ -70,8 +70,9 @@ const INSERT_ORDER_SQL = `
 const SELECT_ORDER_BY_EXT_ID_SQL = 'SELECT * FROM orders WHERE ext_id = $1';
 
 const INSERT_DELIVERY_ATTEMPT_SQL = `
-  INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, state, started_at, next_resolve_at)
-  VALUES ($1, 'A', 1, $2, 'SWEEPER-SKU', $3, $4, $5)
+  INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, delivery_generation,
+                                 state, started_at, next_resolve_at)
+  VALUES ($1, 'A', 1, $2, 'SWEEPER-SKU', $6, $3, $4, $5)
   RETURNING id
 `;
 
@@ -175,6 +176,7 @@ interface IInsertAttemptOptions {
   state: string;
   startedAt?: Date | null;
   nextResolveAt?: Date | null;
+  deliveryGeneration?: number;
 }
 
 async function insertAttempt(options: IInsertAttemptOptions): Promise<number> {
@@ -184,6 +186,7 @@ async function insertAttempt(options: IInsertAttemptOptions): Promise<number> {
     options.state,
     options.startedAt ?? null,
     options.nextResolveAt ?? null,
+    options.deliveryGeneration ?? 0,
   ]);
 
   return rows[0].id;
@@ -286,6 +289,7 @@ describe('sweeper (recovery passes)', () => {
       status: ORDER_STATUS.OUT_OF_STOCK,
       deliveryGeneration: 1,
       paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
     });
 
     await harness.dataSource.query(SET_AVAILABLE_COUNT_SQL, [productId, 5]);
@@ -307,7 +311,12 @@ describe('sweeper (recovery passes)', () => {
   it('pass 3: leaves an out_of_stock order alone while its product has no stock', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(0);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.OUT_OF_STOCK, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.OUT_OF_STOCK,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
+    });
 
     const result = await sweeper.runOnce();
 
@@ -316,6 +325,50 @@ describe('sweeper (recovery passes)', () => {
     const updatedOrder = await fetchOrder(order.ext_id);
 
     expect(updatedOrder.status).toBe(ORDER_STATUS.OUT_OF_STOCK);
+  });
+
+  it('pass 3: leaves a freshly updated out_of_stock order alone', async () => {
+    const sweeper = harness.get(SweeperService);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.OUT_OF_STOCK,
+      deliveryGeneration: 1,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 0,
+    });
+
+    const result = await sweeper.runOnce();
+
+    expect(result.retriedOutOfStock).toBe(0);
+
+    const updatedOrder = await fetchOrder(order.ext_id);
+
+    expect(updatedOrder.status).toBe(ORDER_STATUS.OUT_OF_STOCK);
+    expect(updatedOrder.delivery_generation).toBe(1);
+  });
+
+  // регрессия C2: в supplier-режиме отказ не обнуляет sku_stock, поэтому available_count > 0
+  // держится вечно — без потолка поколений проход гонял бы заказ по кругу на каждом тике
+  it('pass 3: does not retry an out_of_stock order at the generation cap', async () => {
+    const sweeper = harness.get(SweeperService);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.OUT_OF_STOCK,
+      deliveryGeneration: 3,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
+    });
+
+    const result = await sweeper.runOnce();
+
+    expect(result.retriedOutOfStock).toBe(0);
+
+    const updatedOrder = await fetchOrder(order.ext_id);
+
+    expect(updatedOrder.status).toBe(ORDER_STATUS.OUT_OF_STOCK);
+    expect(updatedOrder.delivery_generation).toBe(3);
   });
 
   it('pass 4: retries a delivery_failed order past the retry window under the generation cap', async () => {
@@ -501,6 +554,7 @@ describe('sweeper (concurrency safety)', () => {
       status: ORDER_STATUS.OUT_OF_STOCK,
       deliveryGeneration: 1,
       paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
     });
 
     // findRetryableOutOfStock блокирует строку заказа (FOR UPDATE OF o SKIP LOCKED) и transition

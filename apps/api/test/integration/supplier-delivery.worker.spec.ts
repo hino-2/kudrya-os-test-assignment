@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DataSource } from 'typeorm';
 
+import { ADMIN_TOKEN_HEADER } from '../../src/admin/admin.constants';
+import type { RedeliverResponseDto } from '../../src/admin/dto/redeliver.response.dto';
 import { JOB_STATE } from '../../src/jobs/jobs.constants';
 import { buildDeliverOrderDedupeKey } from '../../src/jobs/jobs.util';
 import type { IJobRow } from '../../src/jobs/jobs.interfaces';
@@ -11,7 +13,7 @@ import { ATTEMPT_STATE, DELIVERY_SOURCE } from '../../src/delivery/delivery.cons
 import { SUPPLIER_CODE } from '../../src/suppliers/suppliers.constants';
 import { startApi } from '../helpers/app.harness';
 import { startStub } from '../helpers/stub.harness';
-import { TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
+import { TEST_ADMIN_TOKEN, TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
 import type { IApiHarness, IStubHarness } from '../helpers/harness.interfaces';
 import { resetDatabase } from '../helpers/pg.helper';
 import { seedCatalog } from '../helpers/seed.helper';
@@ -29,6 +31,7 @@ interface IDeliveryAttemptRow {
   supplier_code: string;
   attempt_no: number;
   state: string;
+  delivery_generation: number;
 }
 
 interface IIssuedDeliveryRow {
@@ -41,12 +44,12 @@ const SUPPLIER_SKU = 'STEAM-TOPUP-500';
 
 const SUPPLIER_SKU_AMOUNT_MAJOR = 500;
 
-const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1';
+const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1 ORDER BY id';
 
 const SELECT_ORDER_STATUS_BY_EXT_ID_SQL = 'SELECT status FROM orders WHERE ext_id = $1';
 
 const SELECT_DELIVERY_ATTEMPTS_SQL = `
-  SELECT da.supplier_code, da.attempt_no, da.state
+  SELECT da.supplier_code, da.attempt_no, da.state, da.delivery_generation
   FROM delivery_attempts da
   JOIN orders o ON o.id = da.order_id
   WHERE o.ext_id = $1
@@ -74,20 +77,21 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// поллинг вместо фиксированного sleep: тик реального @Interval не гарантирован на первой попытке
-async function pollJobUntil(
+// поллинг вместо фиксированного sleep: тик реального @Interval не гарантирован на первой попытке.
+// Строк с одним dedupe_key может быть несколько: jobs_live_uq частичный, поэтому повторная
+// доставка (нового поколения) создаёт вторую строку рядом с уже завершённой первой.
+async function pollJobsUntil(
   dataSource: DataSource,
   dedupeKey: string,
-  predicate: (job: IJobRow) => boolean,
-): Promise<IJobRow> {
+  predicate: (jobs: IJobRow[]) => boolean,
+): Promise<IJobRow[]> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
     const rows = await dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
-    const job = rows[0];
 
-    if (job !== undefined && predicate(job)) {
-      return job;
+    if (predicate(rows)) {
+      return rows;
     }
 
     await delay(POLL_STEP_MS);
@@ -96,10 +100,25 @@ async function pollJobUntil(
   throw new Error(`Задача ${dedupeKey} не перешла в ожидаемое состояние за ${POLL_TIMEOUT_MS}мс`);
 }
 
-async function post<T>(baseUrl: string, path: string, payload: unknown): Promise<IHttpResult<T>> {
+async function pollJobUntil(
+  dataSource: DataSource,
+  dedupeKey: string,
+  predicate: (job: IJobRow) => boolean,
+): Promise<IJobRow> {
+  const jobs = await pollJobsUntil(dataSource, dedupeKey, (rows) => rows[0] !== undefined && predicate(rows[0]));
+
+  return jobs[0];
+}
+
+async function post<T>(
+  baseUrl: string,
+  path: string,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): Promise<IHttpResult<T>> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(payload),
   });
   const body = (await response.json()) as T;
@@ -288,5 +307,71 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     expect(attempts[3]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 2, state: ATTEMPT_STATE.FAILED });
 
     expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
+  });
+
+  // регрессия C1 и критерий 6 задания: после исчерпания обоих поставщиков новое поколение выдачи
+  // обязано снова позвонить поставщику — план фолбэка считается в границах одного поколения
+  it('calls a supplier again in the next delivery generation after both reported out_of_stock', async () => {
+    await forceScenario(stubA, 'out_of_stock', 1);
+    await forceScenario(stubB, 'out_of_stock', 1);
+
+    const extId = await createOrder(SUPPLIER_SKU);
+
+    await payOrder(extId, SUPPLIER_SKU_AMOUNT_MAJOR, 'evt_worker_supplier_next_generation');
+
+    const dedupeKey = buildDeliverOrderDedupeKey(extId);
+
+    await pollJobsUntil(api.dataSource, dedupeKey, (rows) => rows.length === 1 && rows[0].state === JOB_STATE.DONE);
+
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.OUT_OF_STOCK);
+
+    const { status, body } = await post<RedeliverResponseDto>(
+      api.baseUrl,
+      `/admin/orders/${extId}/redeliver`,
+      { reason: 'manual retry after restock' },
+      { [ADMIN_TOKEN_HEADER]: TEST_ADMIN_TOKEN },
+    );
+
+    expect(status).toBe(202);
+    expect(body).toEqual({ enqueued: true, generation: 1 });
+
+    const jobs = await pollJobsUntil(
+      api.dataSource,
+      dedupeKey,
+      (rows) => rows.length === 2 && rows[1].state === JOB_STATE.DONE,
+    );
+
+    expect(jobs[1].last_error).toBeNull();
+
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERED);
+
+    const attempts = await fetchDeliveryAttempts(extId);
+
+    // attempt_no снова 1 у поставщика A в поколении 1 — это и есть переформованный
+    // delivery_attempts_slot_uq (order_id, delivery_generation, supplier_code, attempt_no)
+    expect(attempts).toHaveLength(3);
+    expect(attempts[0]).toMatchObject({
+      delivery_generation: 0,
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[1]).toMatchObject({
+      delivery_generation: 0,
+      supplier_code: SUPPLIER_CODE.B,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[2]).toMatchObject({
+      delivery_generation: 1,
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.SUCCEEDED,
+    });
+
+    const issued = await fetchIssuedDeliveries(extId);
+
+    expect(issued).toHaveLength(1);
+    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
   });
 });

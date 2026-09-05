@@ -12,6 +12,7 @@ import { InitCore1756600000001 } from '../../migrations/1756600000001-InitCore';
 import { InitPayments1756600000002 } from '../../migrations/1756600000002-InitPayments';
 import { InitDelivery1756600000003 } from '../../migrations/1756600000003-InitDelivery';
 import { InitJobs1756600000004 } from '../../migrations/1756600000004-InitJobs';
+import { AddAttemptGeneration1756600000005 } from '../../migrations/1756600000005-AddAttemptGeneration';
 import { OrderEntity } from '../../orders/entities/order.entity';
 import { PaymentEventEntity } from '../../payments/entities/payment-event.entity';
 
@@ -62,6 +63,7 @@ export const MIGRATIONS: MixedList<Function> = [
   InitPayments1756600000002,
   InitDelivery1756600000003,
   InitJobs1756600000004,
+  AddAttemptGeneration1756600000005,
 ];
 
 export const MIGRATIONS_TABLE_NAME = 'migrations';

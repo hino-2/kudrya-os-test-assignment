@@ -55,6 +55,10 @@ export const TEST_CATALOG_MAX_LIMIT = 50;
 
 export const TEST_SUPPLIER_VIRTUAL_STOCK = 1000;
 
+// пиним значение вместо опоры на дефолт ENV_SPEC: смена дефолта не должна ломать спеки
+// невнятным 401 (env.setup.admin-open.ts переопределяет это уже после applyTestEnv)
+export const TEST_ADMIN_TOKEN = 'dev-admin-token';
+
 export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   NODE_ENV: 'test',
   LOG_LEVEL: 'error',
@@ -62,6 +66,7 @@ export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   CATALOG_DEFAULT_LIMIT: String(TEST_CATALOG_DEFAULT_LIMIT),
   CATALOG_MAX_LIMIT: String(TEST_CATALOG_MAX_LIMIT),
   SUPPLIER_VIRTUAL_STOCK: String(TEST_SUPPLIER_VIRTUAL_STOCK),
+  ADMIN_TOKEN: TEST_ADMIN_TOKEN,
   // воркер по умолчанию выключен в интеграционных тестах — сьюты включают его явно через envOverrides,
   // иначе фоновый 200ms tick гоняется во всех сьютах и мешает teardown (гонка с app.close())
   WORKER_ENABLED: 'false',

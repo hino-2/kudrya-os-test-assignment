@@ -81,11 +81,16 @@ export const INSERT_SUPPLIER_ISSUED_DELIVERY_SQL = `
 `;
 
 const DELIVERY_ATTEMPT_COLUMNS = `
-  id, order_id, supplier_code, attempt_no, request_id, sku, state, http_status, response_code,
-  error_kind, error_reason, resolve_attempts, next_resolve_at, started_at, finished_at, duration_ms,
-  created_at, updated_at
+  id, order_id, supplier_code, attempt_no, request_id, sku, delivery_generation, state, http_status,
+  response_code, error_kind, error_reason, resolve_attempts, next_resolve_at, started_at, finished_at,
+  duration_ms, created_at, updated_at
 `;
 
+// намеренно БЕЗ фильтра по поколению: с ним зависшая открытая попытка поколения N-1 стала бы
+// невидимой для resume-пути — pickNextAttempt вставил бы новую, получил бы ON CONFLICT DO NOTHING
+// (частичный delivery_attempts_open_uq действует на весь заказ), перечитал бы тем же запросом
+// и снова получил null ⇒ DELIVERY_ATTEMPT_LOST_MESSAGE на каждом прогоне. Порядок в prepareStep
+// (сначала resume/abandon, потом pick) как раз и рассчитан на межпоколенческий случай.
 export const FIND_OPEN_ATTEMPT_SQL = `
   SELECT ${DELIVERY_ATTEMPT_COLUMNS}
   FROM delivery_attempts
@@ -93,19 +98,27 @@ export const FIND_OPEN_ATTEMPT_SQL = `
   LIMIT 1
 `;
 
+// план фолбэка считается в границах одного поколения — иначе исчерпанная цепочка A→B из
+// прошлого поколения навсегда запрещает новый звонок поставщику после restock/redeliver.
+// Отдельный индекс не нужен: переформованный delivery_attempts_slot_uq
+// (order_id, delivery_generation, …) покрывает этот запрос ведущим префиксом.
 export const FIND_ATTEMPTS_BY_ORDER_SQL = `
   SELECT ${DELIVERY_ATTEMPT_COLUMNS}
   FROM delivery_attempts
-  WHERE order_id = $1
+  WHERE order_id = $1 AND delivery_generation = $2
   ORDER BY id
 `;
 
 // TX-S1: durable-маркер 'in_flight' должен закоммититься до HTTP-вызова поставщику — без него
 // таймаут/сбой воркера после отправки запроса неотличим от того, что запрос вообще не уходил.
 export const INSERT_DELIVERY_ATTEMPT_SQL = `
-  INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, state, started_at)
-  VALUES ($1,$2,$3,$4,$5,'in_flight', now())
+  INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, delivery_generation, state, started_at)
+  VALUES ($1,$2,$3,$4,$5,$6,'in_flight', now())
   -- предикат WHERE обязателен: без него Postgres не свяжет ON CONFLICT с частичным уникальным индексом
+  -- цель конфликта намеренно остаётся по order_id, без поколения: инвариант — "не более одной
+  -- открытой заявки к поставщику на заказ по всем поколениям". С поколением в индексе стали бы
+  -- легальны одновременно открытая попытка поколения 1 и поколения 2, то есть два живых
+  -- POST /issue по одному оплаченному заказу — ровно то окно двойной выдачи, которое закрывает вся схема.
   ON CONFLICT (order_id) WHERE state IN ('pending','in_flight','unknown') DO NOTHING
   RETURNING ${DELIVERY_ATTEMPT_COLUMNS}
 `;

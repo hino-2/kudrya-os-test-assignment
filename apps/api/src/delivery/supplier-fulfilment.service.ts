@@ -238,7 +238,7 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   }
 
   private async pickNextAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<PrepareStepResult> {
-    const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(qr, order.id);
+    const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(qr, order.id, order.generation);
     const choice = pickSupplier(attempts, this.config.supplier.maxAttemptsPerSupplier);
 
     if (choice === null) {
@@ -262,6 +262,7 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       attemptNo: choice.attemptNo,
       requestId,
       sku: order.sku,
+      deliveryGeneration: order.generation,
     });
     // ON CONFLICT(order_id) DO NOTHING мог сработать из-за гонки — строка уже есть, перечитываем
     const attempt = inserted ?? (await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id));
