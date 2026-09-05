@@ -209,10 +209,17 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
 
   // pass 5b: unknown-попытки, готовые к передозвону — нет отдельного resolve_unknown_attempt
   // обработчика (см. README §4.3), поэтому редрайв идёт через deliver_order: повторный
-  // /issue с тем же request_id идемпотентен на стороне поставщика (RESUME_DELIVERY_ATTEMPT_SQL)
+  // /issue с тем же request_id идемпотентен на стороне поставщика (RESUME_DELIVERY_ATTEMPT_SQL).
+  // Планирование ниже потолка дозвонов — здесь; разрешение и отказ на потолке — в самой джобе
+  // (см. CLAIM_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL и spec 07)
   private async redriveUnknownAttempts(): Promise<number> {
     return this.unitOfWork.withTransaction(async (qr) => {
-      const rows = await this.deliveryAttempts.findResolvableUnknown(qr, this.config.sweeper.batchSize);
+      const rows = await this.deliveryAttempts.claimResolvableUnknown(
+        qr,
+        this.config.supplier.retryMaxMs,
+        this.config.supplier.unknownMaxResolveAttempts,
+        this.config.sweeper.batchSize,
+      );
 
       for (const row of rows) {
         await this.enqueueDeliverOrder(qr, row.order_id, row.ext_id, row.delivery_generation);

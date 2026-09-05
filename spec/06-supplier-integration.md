@@ -46,6 +46,8 @@ lookup(supplier: SupplierCode, requestId: string): Promise<ISupplierOutcome>;
 
 The distinction between `server_error` (structured error body ⇒ definitively not issued) and `unknown_response` (garbage ⇒ possibly issued) is the point where a lazier design would create a double issuance.
 
+**As implemented** (`classifySupplierHttpStatus`), a `5xx` is `unavailable` (definitive) only when the parsed body is a contract error `{"status":"error", …}`; every other `5xx` — empty body, HTML from a proxy/LB/ingress, a foreign JSON shape — is `unknown` with `error_kind='http_5xx'`, so the retry replays the same `request_id` instead of minting a new one. Both share one `error_kind`: the state (`failed` vs `unknown`) carries the definitiveness, and keeping `http_5xx` intact is what lets `isRetriableSameSupplier` treat a confirmed-not-issued attempt exactly like an ordinary definitive `5xx`. Accepted residual: a supplier that mints a code and *still* answers with a well-formed `{"status":"error"}` `5xx` violates its own contract and can double-issue; making all `5xx` ambiguous would burn the resolve budget on every ordinary error.
+
 **Retry policy — two levels, deliberately:**
 
 | Level | Where | Attempts | Backoff |
@@ -153,7 +155,7 @@ stateDiagram-v2
     abandoned_unknown --> [*]
 ```
 
-**Resolution procedure** (`delivery/attempt-resolver.service.ts`, driven by the `resolve_unknown_attempt` job):
+**Resolution procedure.** Implemented inside the `deliver_order` job rather than a separate `attempt-resolver.service.ts` / `resolve_unknown_attempt` job (one handler, one attempt row, one dedupe key — see README §2.5), and with the two channels in the opposite order: the blind same-`request_id` `POST` replay is *safe* and cheap, so it runs first, up to `SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` — in practice 2–5 of them, since sweeper passes 5a and 5b burn the same counter (5b burns one even when its enqueue collapses into a dedupe no-op), and switching to the authoritative read early is strictly safer than late; the authoritative `GET` runs once, at the cap, as the abandonment decision. `SupplierClient.lookup` maps its answers as follows: `200` echoing our `request_id` with a non-empty code ⇒ `issued`; `404` ⇒ `rejected` / `not_issued` (definitive); `200` with a foreign `request_id`, any other `4xx`, any `5xx`, or a network failure ⇒ `unknown` (a failed *read* proves nothing about issuance, so there is no contract-body carve-out here) ⇒ `abandoned_unknown` + ERROR `delivery.stranded_issuance`. The original design's channel order, for reference:
 
 1. **Channel 1 — `GET /issue/:request_id`** on the *same* supplier.
    - `200 {status:"ok", code}` → the supplier DID issue. Attempt → `succeeded` with that `code`. Proceed to TX-S3 finalisation. **This is exactly criterion 4.**
@@ -162,7 +164,7 @@ stateDiagram-v2
 2. **Channel 2 — re-`POST /issue` with the SAME `request_id`.** By contract this is idempotent: if the supplier issued, it returns the same code; if it did not, it issues now and returns the code. Either way the outcome is a single code for that `request_id`.
    - `200` → `succeeded`.
    - timeout again → `resolve_attempts++`, `next_resolve_at = now() + nextDelayMs(resolve_attempts, 500, 30000)`, state stays `unknown`, job rescheduled.
-3. After `SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` (5) the attempt becomes `abandoned_unknown`, ERROR log `delivery.stranded_issuance`, and the delivery moves to the next supplier in the chain.
+3. After `SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` (5) — as implemented, the cap is the **switch** from the blind replay to the authoritative `GET`, not the give-up point. Only that read can end the attempt: `succeeded` (the supplier's own code is delivered), `failed` (`404`), or `abandoned_unknown` + ERROR `delivery.stranded_issuance` with the delivery moving to the next supplier in the chain.
 
 **Why this cannot double-issue:** every channel uses the same `request_id`, so the supplier can only ever return one code for it; and our own finalisation (`INSERT INTO issued_deliveries ... ON CONFLICT (order_id) DO NOTHING`) can only ever produce one delivery fact, so even a code obtained twice from two channels lands once.
 

@@ -126,6 +126,19 @@ export interface IPrepareStepAttempt {
   order: ILockedOrderRow;
 }
 
+// бюджет слепых POST-реплеев исчерпан: статус попытки выясняется авторитетным
+// GET /issue/:request_id, попытка уже возобновлена в in_flight (см. resumeOpenAttempt)
+export interface IPrepareStepResolve {
+  kind: 'resolve';
+  attempt: IDeliveryAttemptRow;
+  order: ILockedOrderRow;
+}
+
+export interface IResumedOpenAttempt {
+  attempt: IDeliveryAttemptRow;
+  needsLookup: boolean;
+}
+
 export interface ISettleStepTerminal {
   kind: 'terminal';
   result: IDeliveryResult;

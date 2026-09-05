@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DataSource } from 'typeorm';
 
 import { ADMIN_TOKEN_HEADER } from '../../src/admin/admin.constants';
+import { AppConfigService } from '../../src/common/config/app-config.service';
 import type { RedeliverResponseDto } from '../../src/admin/dto/redeliver.response.dto';
 import { JOB_STATE } from '../../src/jobs/jobs.constants';
 import { buildDeliverOrderDedupeKey } from '../../src/jobs/jobs.util';
@@ -32,11 +33,23 @@ interface IDeliveryAttemptRow {
   attempt_no: number;
   state: string;
   delivery_generation: number;
+  request_id: string;
+  resolve_attempts: number;
 }
 
 interface IIssuedDeliveryRow {
   source: string;
   supplier_code: string | null;
+  code: string;
+}
+
+// ответы заглушки поставщика — только для чтения в этом файле
+interface IStubIssueBody {
+  code: string;
+}
+
+interface IStubControlState {
+  issuedCount: number;
 }
 
 // товар в режиме fulfillment_mode='supplier' — единственный такой SKU в сидере (см. seed.helper)
@@ -49,7 +62,8 @@ const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1 O
 const SELECT_ORDER_STATUS_BY_EXT_ID_SQL = 'SELECT status FROM orders WHERE ext_id = $1';
 
 const SELECT_DELIVERY_ATTEMPTS_SQL = `
-  SELECT da.supplier_code, da.attempt_no, da.state, da.delivery_generation
+  SELECT da.supplier_code, da.attempt_no, da.state, da.delivery_generation, da.request_id,
+         da.resolve_attempts
   FROM delivery_attempts da
   JOIN orders o ON o.id = da.order_id
   WHERE o.ext_id = $1
@@ -57,7 +71,7 @@ const SELECT_DELIVERY_ATTEMPTS_SQL = `
 `;
 
 const SELECT_ISSUED_DELIVERIES_SQL = `
-  SELECT id.source, id.supplier_code
+  SELECT id.source, id.supplier_code, id.code
   FROM issued_deliveries id
   JOIN orders o ON o.id = id.order_id
   WHERE o.ext_id = $1
@@ -66,6 +80,10 @@ const SELECT_ISSUED_DELIVERIES_SQL = `
 const POLL_STEP_MS = 25;
 
 const POLL_TIMEOUT_MS = 5000;
+
+// resolve-путь проходит весь бюджет дозвонов (5 прогонов джобы с экспоненциальным бэкоффом
+// поставщика) до того, как дело доходит до GET /issue/:request_id — 5с здесь мало
+const POLL_RESOLVE_TIMEOUT_MS = 20000;
 
 let api: IApiHarness;
 
@@ -84,8 +102,9 @@ async function pollJobsUntil(
   dataSource: DataSource,
   dedupeKey: string,
   predicate: (jobs: IJobRow[]) => boolean,
+  timeoutMs: number = POLL_TIMEOUT_MS,
 ): Promise<IJobRow[]> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     const rows = await dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
@@ -97,17 +116,44 @@ async function pollJobsUntil(
     await delay(POLL_STEP_MS);
   }
 
-  throw new Error(`Задача ${dedupeKey} не перешла в ожидаемое состояние за ${POLL_TIMEOUT_MS}мс`);
+  throw new Error(`Задача ${dedupeKey} не перешла в ожидаемое состояние за ${timeoutMs}мс`);
 }
 
 async function pollJobUntil(
   dataSource: DataSource,
   dedupeKey: string,
   predicate: (job: IJobRow) => boolean,
+  timeoutMs: number = POLL_TIMEOUT_MS,
 ): Promise<IJobRow> {
-  const jobs = await pollJobsUntil(dataSource, dedupeKey, (rows) => rows[0] !== undefined && predicate(rows[0]));
+  const jobs = await pollJobsUntil(
+    dataSource,
+    dedupeKey,
+    (rows) => rows[0] !== undefined && predicate(rows[0]),
+    timeoutMs,
+  );
 
   return jobs[0];
+}
+
+async function pollAttemptUntil(
+  extId: string,
+  predicate: (attempt: IDeliveryAttemptRow) => boolean,
+  timeoutMs: number,
+): Promise<IDeliveryAttemptRow> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const rows = await fetchDeliveryAttempts(extId);
+    const attempt = rows[0];
+
+    if (attempt !== undefined && predicate(attempt)) {
+      return attempt;
+    }
+
+    await delay(POLL_STEP_MS);
+  }
+
+  throw new Error(`Попытка выдачи заказа ${extId} не перешла в ожидаемое состояние за ${timeoutMs}мс`);
 }
 
 async function post<T>(
@@ -121,6 +167,13 @@ async function post<T>(
     headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(payload),
   });
+  const body = (await response.json()) as T;
+
+  return { status: response.status, body };
+}
+
+async function getJson<T>(baseUrl: string, path: string): Promise<IHttpResult<T>> {
+  const response = await fetch(`${baseUrl}${path}`);
   const body = (await response.json()) as T;
 
   return { status: response.status, body };
@@ -243,6 +296,117 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
 
     expect(issued).toHaveLength(1);
     expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+  });
+
+  // H2, регрессия: A заминтил код, но API его ответа так и не увидел. После исчерпания бюджета
+  // слепых POST-реплеев джоба обязана спросить у A авторитетно (GET /issue/:request_id) и выдать
+  // именно код A — уход к B дал бы вторую выдачу на один оплаченный заказ, а первую потерял бы
+  it('resolves an exhausted unknown attempt through the supplier lookup instead of falling back to B', async () => {
+    const cap = api.get(AppConfigService).supplier.unknownMaxResolveAttempts;
+
+    // ровно cap зависших POST: каждый переводит попытку в unknown и съедает один дозвон,
+    // после чего форсированный сценарий сам сбрасывается в normal (все рейты нулевые ⇒ 'ok')
+    await forceScenario(stubA, 'timeout', cap);
+
+    const extId = await createOrder(SUPPLIER_SKU);
+
+    await payOrder(extId, SUPPLIER_SKU_AMOUNT_MAJOR, 'evt_worker_supplier_resolve');
+
+    const exhausted = await pollAttemptUntil(extId, (row) => row.resolve_attempts >= cap, POLL_RESOLVE_TIMEOUT_MS);
+
+    // заглушка отвечает на реплей того же request_id мгновенно, поэтому состояние «код у A уже
+    // есть, а слепой реплей его не покажет» воспроизводится прямым POST /issue в заглушку A:
+    // это и есть окно H2 — заминтил, ответ потерян, бюджет реплеев исчерпан
+    const minted = await post<IStubIssueBody>(stubA.baseUrl, '/issue', {
+      request_id: exhausted.request_id,
+      sku: SUPPLIER_SKU,
+      order_id: extId,
+    });
+
+    expect(minted.status).toBe(200);
+
+    const lookup = await getJson<IStubIssueBody>(stubA.baseUrl, `/issue/${exhausted.request_id}`);
+
+    expect(lookup.status).toBe(200);
+    expect(lookup.body.code).toBe(minted.body.code);
+
+    const job = await pollJobUntil(
+      api.dataSource,
+      buildDeliverOrderDedupeKey(extId),
+      (row) => row.state === JOB_STATE.DONE,
+      POLL_RESOLVE_TIMEOUT_MS,
+    );
+
+    // cap прогонов на слепые реплеи + один прогон на resolve-шаг
+    expect(job.attempts).toBe(cap + 1);
+    expect(job.last_error).toBeNull();
+
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERED);
+
+    const attempts = await fetchDeliveryAttempts(extId);
+
+    // ни одной новой попытки: фолбэк к B даже не рассматривался
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.SUCCEEDED,
+    });
+
+    const issued = await fetchIssuedDeliveries(extId);
+
+    expect(issued).toHaveLength(1);
+    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+    expect(issued[0].code).toBe(minted.body.code);
+
+    const stateB = await getJson<IStubControlState>(stubB.baseUrl, '/_control/state');
+
+    expect(stateB.body.issuedCount).toBe(0);
+  });
+
+  // H1, регрессия: 500 с HTML-телом (прокси/LB/ingress) не является ответом поставщика в его
+  // контракте и не доказывает, что код не заминчен. Такой исход обязан быть неопределённым —
+  // тогда повтор идёт тем же request_id. Если считать его определённым, повтор к тому же
+  // поставщику уйдёт с НОВЫМ request_id и заглушка заминтит второй код: именно эту подпись
+  // дефекта и ловят проверки ниже (одна строка попытки, attempt_no=1, одна выдача у A)
+  it('replays the same request_id after a garbage-body 5xx instead of minting a second code', async () => {
+    await forceScenario(stubA, 'error_5xx_garbage', 1);
+
+    const extId = await createOrder(SUPPLIER_SKU);
+
+    await payOrder(extId, SUPPLIER_SKU_AMOUNT_MAJOR, 'evt_worker_supplier_garbage_5xx');
+
+    const job = await pollJobUntil(
+      api.dataSource,
+      buildDeliverOrderDedupeKey(extId),
+      (row) => row.state === JOB_STATE.DONE,
+    );
+
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERED);
+
+    const attempts = await fetchDeliveryAttempts(extId);
+
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.SUCCEEDED,
+    });
+
+    const issued = await fetchIssuedDeliveries(extId);
+
+    expect(issued).toHaveLength(1);
+    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+
+    // главное: у самой заглушки A заминчен ровно один код на этот заказ
+    const stateA = await getJson<IStubControlState>(stubA.baseUrl, '/_control/state');
+
+    expect(stateA.body.issuedCount).toBe(1);
+
+    // первая claim ловит неопределённый 5xx (unknown, retry_required), вторая реплеит тот же
+    // request_id и получает код от того же поставщика
+    expect(job.attempts).toBe(2);
+    expect(job.last_error).toBeNull();
   });
 
   it('moves the order to out_of_stock when both suppliers report out_of_stock within a single job claim', async () => {

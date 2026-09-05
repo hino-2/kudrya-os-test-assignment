@@ -5,12 +5,16 @@ import { AppLoggerService } from '../common/logging/app-logger.service';
 import { LOG_EVENT } from '../common/logging/logging.constants';
 import {
   HTTP_STATUS_CLIENT_ERROR_MIN,
+  HTTP_STATUS_NOT_FOUND,
+  HTTP_STATUS_SERVER_ERROR_MIN,
   SUPPLIER_CODE,
   SUPPLIER_CONTENT_TYPE,
   SUPPLIER_CONTROL_RESTOCK_PATH,
   SUPPLIER_ERROR_KIND,
   SUPPLIER_ISSUE_PATH,
+  SUPPLIER_LOOKUP_PATH_TEMPLATE,
   SUPPLIER_OUTCOME,
+  SUPPLIER_REQUEST_ID_MISMATCH_REASON,
 } from './suppliers.constants';
 import type {
   ISupplierIssueInput,
@@ -22,7 +26,10 @@ import type { IssueOutcomeShape, SupplierCode } from './suppliers.type';
 import {
   classifySupplierHttpStatus,
   classifySupplierNetworkError,
+  extractSupplierReason,
+  formatTemplate,
   isSupplierSuccessBody,
+  matchesRequestId,
 } from './suppliers.util';
 
 @Injectable()
@@ -73,26 +80,47 @@ export class SupplierClient {
 
       return { ...outcome, durationMs };
     } catch (error) {
+      return this.networkFailure(input.supplierCode, input.requestId, error, startedAt);
+    }
+  }
+
+  // resolve-шаг (см. spec 05 §5.6): авторитетное чтение статуса заявки, когда бюджет слепых
+  // POST-реплеев с тем же request_id исчерпан. Вызывается ровно из одного места —
+  // SupplierFulfilmentService при решении «сдаться или нет» по неоднозначной попытке
+  async lookup(supplierCode: SupplierCode, requestId: string): Promise<ISupplierIssueResult> {
+    const path = formatTemplate(SUPPLIER_LOOKUP_PATH_TEMPLATE, encodeURIComponent(requestId));
+    const url = `${this.baseUrlFor(supplierCode)}${path}`;
+
+    this.logger.event(LOG_EVENT.SUPPLIER_REQUEST, {
+      supplier_code: supplierCode,
+      request_id: requestId,
+      path,
+    });
+
+    const startedAt = performance.now();
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(this.config.supplier.requestTimeoutMs),
+      });
       const durationMs = Math.round(performance.now() - startedAt);
-      const classification = classifySupplierNetworkError(error);
+      const text = await response.text();
+      const parsedBody = this.tryParseJson(text);
+      const outcome = this.classifyLookupResponse(response.status, parsedBody, requestId);
 
       this.logger.event(LOG_EVENT.SUPPLIER_RESPONSE, {
-        supplier_code: input.supplierCode,
-        request_id: input.requestId,
-        http_status: null,
-        outcome: classification.kind,
-        error_kind: classification.errorKind,
+        supplier_code: supplierCode,
+        request_id: requestId,
+        http_status: response.status,
+        outcome: outcome.kind,
+        error_kind: outcome.errorKind,
         duration_ms: durationMs,
       });
 
-      return {
-        kind: classification.kind,
-        code: null,
-        httpStatus: null,
-        errorKind: classification.errorKind,
-        errorReason: null,
-        durationMs,
-      };
+      return { ...outcome, durationMs };
+    } catch (error) {
+      return this.networkFailure(supplierCode, requestId, error, startedAt);
     }
   }
 
@@ -131,6 +159,34 @@ export class SupplierClient {
     }
   }
 
+  private networkFailure(
+    supplierCode: SupplierCode,
+    requestId: string,
+    error: unknown,
+    startedAt: number,
+  ): ISupplierIssueResult {
+    const durationMs = Math.round(performance.now() - startedAt);
+    const classification = classifySupplierNetworkError(error);
+
+    this.logger.event(LOG_EVENT.SUPPLIER_RESPONSE, {
+      supplier_code: supplierCode,
+      request_id: requestId,
+      http_status: null,
+      outcome: classification.kind,
+      error_kind: classification.errorKind,
+      duration_ms: durationMs,
+    });
+
+    return {
+      kind: classification.kind,
+      code: null,
+      httpStatus: null,
+      errorKind: classification.errorKind,
+      errorReason: null,
+      durationMs,
+    };
+  }
+
   private classifyResponse(status: number, body: unknown): IssueOutcomeShape {
     if (status < HTTP_STATUS_CLIENT_ERROR_MIN) {
       if (isSupplierSuccessBody(body)) {
@@ -154,6 +210,44 @@ export class SupplierClient {
       httpStatus: status,
       errorKind: classification.errorKind,
       errorReason: classification.reason,
+    };
+  }
+
+  // единственный определённый исход чтения — 404: поставщик отрицает сам request_id. Любой
+  // другой 4xx/5xx означает, что чтение не удалось, а неудавшееся чтение ничего не говорит
+  // о выдаче — карве-аута для тела {"status":"error"}, как в classifySupplierHttpStatus, здесь нет
+  private classifyLookupResponse(status: number, body: unknown, requestId: string): IssueOutcomeShape {
+    if (status < HTTP_STATUS_CLIENT_ERROR_MIN) {
+      if (isSupplierSuccessBody(body) && matchesRequestId(body, requestId)) {
+        return { kind: SUPPLIER_OUTCOME.ISSUED, code: body.code, httpStatus: status, errorKind: null, errorReason: null };
+      }
+
+      return {
+        kind: SUPPLIER_OUTCOME.UNKNOWN,
+        code: null,
+        httpStatus: status,
+        errorKind: SUPPLIER_ERROR_KIND.BAD_BODY,
+        errorReason: SUPPLIER_REQUEST_ID_MISMATCH_REASON,
+      };
+    }
+
+    if (status === HTTP_STATUS_NOT_FOUND) {
+      return {
+        kind: SUPPLIER_OUTCOME.REJECTED,
+        code: null,
+        httpStatus: status,
+        errorKind: SUPPLIER_ERROR_KIND.NOT_ISSUED,
+        errorReason: extractSupplierReason(body),
+      };
+    }
+
+    return {
+      kind: SUPPLIER_OUTCOME.UNKNOWN,
+      code: null,
+      httpStatus: status,
+      errorKind:
+        status >= HTTP_STATUS_SERVER_ERROR_MIN ? SUPPLIER_ERROR_KIND.HTTP_5XX : SUPPLIER_ERROR_KIND.BAD_BODY,
+      errorReason: extractSupplierReason(body),
     };
   }
 

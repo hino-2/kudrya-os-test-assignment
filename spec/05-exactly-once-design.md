@@ -109,6 +109,8 @@ Rejected alternative: deliver inline and return `202` — still holds the lock, 
 
 **The invariant the developer must never break: no `QueryRunner` may be open while `fetch` is in flight.** Reviewed explicitly.
 
+The resolve step (`GET /issue/:request_id`, `SupplierClient.lookup`) is **implemented** and occupies exactly the same slot in the TX-S1 / no-transaction / TX-S2 sandwich as `POST /issue`: `prepareStep` (TX-S1) resumes the open attempt to `in_flight` and reports that the blind-replay budget is spent, the HTTP read happens with no query runner held, and `settleStep` (TX-S2) writes the outcome. This is why the abandonment decision lives in TX-S2 and not in TX-S1: taking it before the read would mean deciding without the supplier's answer, and taking it during the read would mean holding a transaction across `fetch`.
+
 ### 5.7 Isolation level
 
 **Decision: READ COMMITTED** (PostgreSQL default) for every transaction in the system.

@@ -5,11 +5,11 @@ import type { QueryResult, QueryRunner } from 'typeorm';
 import { DomainError } from '../common/errors/domain.error';
 import { ERROR_CODE } from '../common/errors/errors.constants';
 import {
+  CLAIM_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL,
   DELIVERY_TRANSACTION_REQUIRED_MESSAGE,
   DEMOTE_STALE_INFLIGHT_SQL,
   FIND_ATTEMPTS_BY_ORDER_SQL,
   FIND_OPEN_ATTEMPT_SQL,
-  FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL,
   FINALIZE_ATTEMPT_FAILED_SQL,
   FINALIZE_ATTEMPT_SUCCEEDED_SQL,
   INSERT_DELIVERY_ATTEMPT_SQL,
@@ -109,10 +109,12 @@ export class DeliveryAttemptRepository {
     return rows[0]?.resolve_attempts ?? null;
   }
 
-  async markAbandoned(qr: QueryRunner, attemptId: number): Promise<boolean> {
+  // false означает, что попытку уже увёл кто-то другой (демоция свипером, второй воркер) —
+  // вызывающий обязан проверить результат и не продолжать выдачу по чужой строке
+  async markAbandoned(qr: QueryRunner, attemptId: number, resumedAt: Date | null): Promise<boolean> {
     this.assertTransaction(qr);
 
-    const rows = await this.runUpdate<{ id: number }>(MARK_ATTEMPT_ABANDONED_SQL, [attemptId], qr);
+    const rows = await this.runUpdate<{ id: number }>(MARK_ATTEMPT_ABANDONED_SQL, [attemptId, resumedAt], qr);
 
     return rows.length > 0;
   }
@@ -128,10 +130,21 @@ export class DeliveryAttemptRepository {
     return this.runUpdate<IStaleInflightAttemptRow>(DEMOTE_STALE_INFLIGHT_SQL, [timeoutMs, errorReason, limit], qr);
   }
 
-  async findResolvableUnknown(qr: QueryRunner, limit: number): Promise<IResolvableAttemptRow[]> {
+  // claim, а не чистое чтение: инкремент resolve_attempts и сдвиг next_resolve_at идут тем же
+  // UPDATE … RETURNING, иначе pass 5b ставил бы одну и ту же джобу вечно (см. SQL-комментарий)
+  async claimResolvableUnknown(
+    qr: QueryRunner,
+    retryMaxMs: number,
+    maxResolveAttempts: number,
+    limit: number,
+  ): Promise<IResolvableAttemptRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IResolvableAttemptRow>(FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL, [limit], qr);
+    return this.runUpdate<IResolvableAttemptRow>(
+      CLAIM_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL,
+      [retryMaxMs, maxResolveAttempts, limit],
+      qr,
+    );
   }
 
   // CAS-транзиции и блокирующие SELECT вне транзакции теряют блокировку на границе оператора.

@@ -144,7 +144,7 @@ LIMIT $1;
 | 2 | `orders` where `paid_at IS NOT NULL AND status IN ('paid','delivering')`, no `issued_deliveries` row, no live `deliver_order` job, `updated_at < now() - STUCK_ORDER_AGE_SECONDS` | 60 s | enqueue `deliver_order` (`ON CONFLICT DO NOTHING`), WARN `sweeper.requeued` |
 | 3 | `orders` where `status='out_of_stock'` and `sku_stock.available_count > 0` for its product, `updated_at < now() - OUT_OF_STOCK_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 30 s / 5 gens | `RETRY_DELIVERY`, `delivery_generation += 1`, enqueue |
 | 4 | `orders` where `status='delivery_failed' AND updated_at < now() - DELIVERY_FAILED_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 300 s / 5 gens | `RETRY_DELIVERY`, enqueue |
-| 5 | `delivery_attempts` where `state='unknown' AND next_resolve_at <= now()`; plus `state='in_flight' AND started_at < now() - ATTEMPT_INFLIGHT_TIMEOUT_MS` demoted to `unknown` first | 30 s | enqueue `resolve_unknown_attempt` (`dedupe_key = 'attempt:' || id`) |
+| 5 | `delivery_attempts` where `state='unknown' AND next_resolve_at <= now() AND resolve_attempts < SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` and whose order is still `paid`/`delivering`; plus `state='in_flight' AND started_at < now() - ATTEMPT_INFLIGHT_TIMEOUT_MS` demoted to `unknown` first | 30 s | **claim** (`UPDATE … SET resolve_attempts += 1, next_resolve_at = now() + SUPPLIER_RETRY_MAX_MS … RETURNING`), then enqueue `deliver_order` |
 | 6 | `payment_events` where `state='orphan'` and an order with that `ext_id` now exists → replay; `state='orphan' AND received_at < now() - ORPHAN_TTL_SECONDS` → `abandoned` | 3600 s | replay / abandon, WARN |
 
 **Why it is safe to run concurrently with the main flow — four reasons, in order of strength:**
@@ -157,6 +157,17 @@ LIMIT $1;
 Pass 2 deliberately requires `updated_at` age **and** the absence of a live job, so it can never race a delivery that is legitimately mid-flight.
 
 Pass 3 carries the same two brakes as pass 4 (age threshold + generation cap): in supplier mode a failed delivery does not zero `sku_stock`, so `available_count > 0` persists and an unbraked pass 3 would re-enqueue the same order every tick forever.
+
+Pass 5b is a **self-advancing claim**, for the same reason: as a plain `SELECT` it moved neither `resolve_attempts` nor `next_resolve_at`, so an order whose `unknown` attempt the delivery job no longer touches (`delivery_failed` at the generation cap, `out_of_stock`, `delivered`) was re-enqueued on every tick forever. Two brakes now: the join is restricted to `o.status IN ('paid','delivering')`, and the claim itself moves the row. The backoff is a flat `SUPPLIER_RETRY_MAX_MS` expressed in SQL rather than a computed per-attempt delay, because the row's `resolve_attempts` is not known before the select; flat is monotone, bounded, and the sweeper tick is the real floor anyway.
+
+**Ownership split between pass 5b and the delivery job.** What keeps the two off the same row at the same time is the **`state`** filter, not the counter: a row the job is working on is held `in_flight` by `resumeOpenAttempt`, and pass 5b selects `state='unknown'` only. The counter merely fixes *when* the channel switches — pass 5a, for instance, demotes `in_flight → unknown` regardless of `resolve_attempts`.
+
+| `resolve_attempts` | Pass 5b | `deliver_order` job |
+|---|---|---|
+| `< SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` | owns **scheduling**: claims the row, advances the counter, enqueues the job | replays `POST /issue` with the same `request_id` |
+| `>= SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` | selects nothing, enqueues nothing | owns **resolution and abandonment**: one authoritative `GET /issue/:request_id` ⇒ `succeeded` / `failed` / `abandoned_unknown` |
+
+The cap → `abandoned_unknown` transition therefore does **not** happen in the sweeper. Termination is still guaranteed: pass 5b enqueues a job on the tick where the counter reaches cap−1, and that job drives the attempt to a decision; if the job dies permanently, pass 2 re-creates it.
 
 ### 7.4 The money ledger that always balances
 

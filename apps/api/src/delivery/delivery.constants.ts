@@ -22,6 +22,17 @@ export const DELIVERY_OUTCOME = {
 
 export const DELIVERY_OUT_OF_STOCK_REASON = 'out_of_stock';
 
+// через что settleStep пришёл к исходу: слепой POST /issue или авторитетный GET /issue/:request_id
+export const SETTLE_VIA = {
+  ISSUE: 'issue',
+  RESOLVE: 'resolve',
+} as const;
+
+// error_reason попытки, которую поставщик на resolve-шаге отрицает сам (404 на чтении)
+export const DELIVERY_LOOKUP_NOT_ISSUED_REASON = 'lookup_not_found';
+
+export const DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE = 'Состояние попытки изменилось во время дозвона к поставщику — требуется повтор задачи';
+
 export const SUPPLIER_JOB_LAST_ATTEMPT_MESSAGE_TEMPLATE = 'Последняя попытка задачи выдачи через поставщика исчерпана без терминального исхода: %s';
 
 export const DELIVERY_TRANSACTION_REQUIRED_MESSAGE = 'Операция доставки требует открытой транзакции';
@@ -160,11 +171,29 @@ export const PROMOTE_ATTEMPT_TO_UNKNOWN_SQL = `
 `;
 
 // abandoned_unknown выходит из-под partial unique index delivery_attempts_open_uq — освобождает
-// заказ для попытки со следующим поставщиком, не дожидаясь ручного разрешения (см. README §6)
+// заказ для попытки со следующим поставщиком, не дожидаясь ручного разрешения (см. README §6).
+// in_flight в предикате обязателен: единственный вызывающий (resolve-ветка settleStep) работает
+// с попыткой, уже возобновлённой в in_flight в TX-S1, — без этого CAS не совпал бы и попытка
+// осталась бы открытой навсегда. 'unknown' оставлен для попыток, которые никто не возобновлял.
+//
+// started_at фенсит расширенный предикат: бросить in_flight-попытку разрешено только тому, кто
+// сам её и возобновил. Без фенса два воркера на одной попытке (RESUME_DELIVERY_ATTEMPT_SQL
+// допускает in_flight → in_flight) могли бы разойтись: один бросает попытку и минтит у B, второй
+// в это же время получает код от A. Сравнение идёт через date_trunc: драйвер отдаёт timestamptz
+// уже усечённым до миллисекунд, поэтому точное равенство с сохранённым микросекундным значением
+// не совпало бы никогда.
+//
+// Известный потолок: now() в RESUME_DELIVERY_ATTEMPT_SQL — это transaction_timestamp(), и он
+// фиксируется до ожидания блокировки заказа, поэтому две транзакции, начавшиеся в одну
+// миллисекунду, записали бы одинаковый started_at и фенс выродился бы. Для этого нужны два живых
+// прогона одной джобы (их и так не даёт jobs_live_uq вместе с JOB_LOCK_TTL_MS >>
+// SUPPLIER_JOB_BUDGET_MS), поэтому оставлено как есть. Герметичный вариант — отдельная колонка
+// resume_seq со точным сравнением, но это миграция.
 export const MARK_ATTEMPT_ABANDONED_SQL = `
   UPDATE delivery_attempts
   SET state = 'abandoned_unknown', finished_at = now(), updated_at = now()
-  WHERE id = $1 AND state = 'unknown'
+  WHERE id = $1 AND state IN ('unknown','in_flight')
+    AND date_trunc('milliseconds', started_at) = $2
   RETURNING id
 `;
 
@@ -186,14 +215,44 @@ export const DEMOTE_STALE_INFLIGHT_SQL = `
   RETURNING a.id, a.order_id, a.supplier_code, a.attempt_no
 `;
 
-// sweeper pass 5b: unknown-попытки, готовые к передозвону поставщику — идёт через
-// idx_delivery_attempts_resolvable
-export const FIND_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL = `
-  SELECT a.id, a.order_id, o.ext_id, o.delivery_generation
-  FROM delivery_attempts a
-  JOIN orders o ON o.id = a.order_id
-  WHERE a.state = 'unknown' AND a.next_resolve_at <= now()
-  ORDER BY a.next_resolve_at
-  FOR UPDATE OF a SKIP LOCKED
-  LIMIT $1
+// sweeper pass 5b: unknown-попытки, готовые к передозвону поставщику. Выборка самопродвигающаяся
+// (claim, а не read): раньше pass 5b не двигал ни resolve_attempts, ни next_resolve_at, поэтому
+// заказ, чью попытку джоба уже не трогает (delivery_failed/out_of_stock/delivered), ставился в
+// очередь на каждом тике вечно.
+//
+// Разделение владения (см. spec 07): pass 5b владеет ПЛАНИРОВАНИЕМ строго ниже потолка
+// (resolve_attempts < $2), джоба доставки — РАЗРЕШЕНИЕМ и отказом строго на потолке и выше
+// (см. resumeOpenAttempt/settleStep). Одновременный доступ к одной строке исключает не счётчик,
+// а фильтр по state: строку, которой занята джоба, resumeOpenAttempt держит в in_flight, а
+// pass 5b выбирает только state='unknown'. Счётчик задаёт лишь момент переключения канала —
+// pass 5a, например, демотирует in_flight в unknown вообще независимо от resolve_attempts.
+// Завершаемость: на тике, где счётчик доходит до потолка−1, pass 5b ставит джобу, и та доводит
+// попытку до решения; на потолке pass 5b выбирает ноль строк и ноль джоб. Если джоба умрёт
+// совсем — её пересоздаст pass 2.
+//
+// Бэкофф задан плоским retryMaxMs прямо в SQL, а не через computeNextRunAt: per-row
+// resolve_attempts до выборки неизвестен, а плоское значение монотонно, ограничено сверху, и
+// реальным полом всё равно остаётся интервал тика свипера.
+//
+// Идёт через idx_delivery_attempts_resolvable (next_resolve_at) WHERE state = 'unknown' —
+// он же обслуживает и предикат, и ORDER BY; resolve_attempts и o.status отбираются по heap/join.
+export const CLAIM_RESOLVABLE_UNKNOWN_ATTEMPTS_SQL = `
+  UPDATE delivery_attempts a
+  SET resolve_attempts = a.resolve_attempts + 1,
+      next_resolve_at = now() + ($1 || ' milliseconds')::interval,
+      updated_at = now()
+  FROM (
+    SELECT a2.id, a2.order_id, o.ext_id, o.delivery_generation
+    FROM delivery_attempts a2
+    JOIN orders o ON o.id = a2.order_id
+    WHERE a2.state = 'unknown'
+      AND a2.next_resolve_at <= now()
+      AND a2.resolve_attempts < $2
+      AND o.status IN ('paid','delivering')
+    ORDER BY a2.next_resolve_at
+    FOR UPDATE OF a2 SKIP LOCKED
+    LIMIT $3
+  ) claimed
+  WHERE a.id = claimed.id
+  RETURNING a.id, claimed.order_id, claimed.ext_id, claimed.delivery_generation
 `;

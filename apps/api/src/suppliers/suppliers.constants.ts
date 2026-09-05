@@ -24,9 +24,15 @@ export const SUPPLIER_ERROR_KIND = {
   OUT_OF_STOCK: 'out_of_stock',
   BAD_BODY: 'bad_body',
   INFLIGHT_EXPIRED: 'inflight_expired',
+  // поставщик на авторитетном GET /issue/:request_id сам отрицает заявку — единственный
+  // определённый ответ resolve-шага (см. SupplierClient.lookup)
+  NOT_ISSUED: 'not_issued',
 } as const;
 
 export const SUPPLIER_ISSUE_PATH = '/issue';
+
+// resolve-шаг: чтение статуса уже отправленной заявки по её request_id (см. spec 05 §5.6)
+export const SUPPLIER_LOOKUP_PATH_TEMPLATE = '/issue/%s';
 
 export const SUPPLIER_CONTROL_RESTOCK_PATH = '/_control/restock';
 
@@ -55,7 +61,11 @@ export const SUPPLIER_REFUSED_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN',
 
 export const SUPPLIER_RESET_CODES = ['ECONNRESET', 'UND_ERR_SOCKET', 'EPIPE'] as const;
 
+export const SUPPLIER_REQUEST_ID_MISMATCH_REASON = 'request_id_mismatch';
+
 export const HTTP_STATUS_SERVER_ERROR_MIN = 500;
+
+export const HTTP_STATUS_NOT_FOUND = 404;
 
 export const HTTP_STATUS_CLIENT_ERROR_MIN = 400;
 

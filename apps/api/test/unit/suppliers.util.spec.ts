@@ -8,7 +8,9 @@ import {
   classifySupplierNetworkError,
   extractSupplierCode,
   extractSupplierReason,
+  isSupplierErrorBody,
   isSupplierSuccessBody,
+  matchesRequestId,
 } from '../../src/suppliers/suppliers.util';
 
 describe('suppliers.util', () => {
@@ -83,14 +85,50 @@ describe('suppliers.util', () => {
       expect(result.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_4XX);
     });
 
-    it('classifies any 5xx complete response as UNAVAILABLE, even with unparseable body', () => {
-      const withBody = classifySupplierHttpStatus(500, { status: 'error', reason: 'upstream_unavailable' });
-      const withoutBody = classifySupplierHttpStatus(503, null);
+    it('classifies a 5xx as UNAVAILABLE only when the body is a contract error', () => {
+      const result = classifySupplierHttpStatus(500, { status: 'error', reason: 'upstream_unavailable' });
 
-      expect(withBody.kind).toBe(SUPPLIER_OUTCOME.UNAVAILABLE);
-      expect(withBody.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
-      expect(withoutBody.kind).toBe(SUPPLIER_OUTCOME.UNAVAILABLE);
-      expect(withoutBody.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
+      expect(result.kind).toBe(SUPPLIER_OUTCOME.UNAVAILABLE);
+      expect(result.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
+      expect(result.reason).toBe('upstream_unavailable');
+    });
+
+    // H1: 5xx без тела в контракте поставщика (прокси/LB/ingress или обрыв уже после минтинга)
+    // не доказывает отсутствие выдачи — повтор с новым request_id дал бы двойную выдачу
+    it('classifies a bodyless 5xx as UNKNOWN, never UNAVAILABLE', () => {
+      const result = classifySupplierHttpStatus(503, null);
+
+      expect(result.kind).toBe(SUPPLIER_OUTCOME.UNKNOWN);
+      expect(result.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
+    });
+
+    it('classifies a 5xx with a garbage (non-JSON) body as UNKNOWN', () => {
+      const html = classifySupplierHttpStatus(500, '<html><body>upstream error</body></html>');
+      const foreignJson = classifySupplierHttpStatus(502, { error: 'bad gateway' });
+
+      expect(html.kind).toBe(SUPPLIER_OUTCOME.UNKNOWN);
+      expect(html.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
+      expect(foreignJson.kind).toBe(SUPPLIER_OUTCOME.UNKNOWN);
+      expect(foreignJson.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
+    });
+  });
+
+  describe('isSupplierErrorBody', () => {
+    it('accepts only an object body whose status is the contract error marker', () => {
+      expect(isSupplierErrorBody({ status: 'error', reason: 'upstream_unavailable' })).toBe(true);
+      expect(isSupplierErrorBody({ status: 'ok' })).toBe(false);
+      expect(isSupplierErrorBody({})).toBe(false);
+      expect(isSupplierErrorBody(null)).toBe(false);
+      expect(isSupplierErrorBody('<html>error</html>')).toBe(false);
+    });
+  });
+
+  describe('matchesRequestId', () => {
+    it('accepts only an object body echoing exactly the same request_id', () => {
+      expect(matchesRequestId({ request_id: 'req_00042-g0-A1' }, 'req_00042-g0-A1')).toBe(true);
+      expect(matchesRequestId({ request_id: 'req_00042-g0-A2' }, 'req_00042-g0-A1')).toBe(false);
+      expect(matchesRequestId({}, 'req_00042-g0-A1')).toBe(false);
+      expect(matchesRequestId(null, 'req_00042-g0-A1')).toBe(false);
     });
   });
 

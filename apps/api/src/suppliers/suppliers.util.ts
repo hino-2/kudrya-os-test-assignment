@@ -2,6 +2,7 @@ import {
   HTTP_STATUS_CLIENT_ERROR_MIN,
   HTTP_STATUS_SERVER_ERROR_MIN,
   SUPPLIER_ERROR_KIND,
+  SUPPLIER_ERROR_STATUS,
   SUPPLIER_GENERATION_MARKER,
   SUPPLIER_ORDER_EXT_PREFIX,
   SUPPLIER_OUTCOME,
@@ -21,7 +22,7 @@ import type {
 } from './suppliers.interfaces';
 import type { SupplierCode } from './suppliers.type';
 
-function formatTemplate(template: string, ...values: readonly unknown[]): string {
+export function formatTemplate(template: string, ...values: readonly unknown[]): string {
   let index = 0;
 
   return template.replace(/%s/g, () => String(values[index++]));
@@ -54,6 +55,26 @@ export function isSupplierSuccessBody(
   const candidate = body as ISupplierIssueSuccessBody;
 
   return typeof candidate.code === 'string' && candidate.code.length > 0;
+}
+
+// тело в контракте поставщика: {"status":"error", ...}. Отличает ответ самого поставщика от
+// 5xx прокси/LB/ingress и от обрыва уже после минтинга кода (см. classifySupplierHttpStatus)
+export function isSupplierErrorBody(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) {
+    return false;
+  }
+
+  return (body as ISupplierIssueErrorBody).status === SUPPLIER_ERROR_STATUS;
+}
+
+// сверка эха request_id: ответ с чужим request_id не относится к нашей заявке и ничего
+// о ней не доказывает (используется на resolve-шаге, см. SupplierClient.lookup)
+export function matchesRequestId(body: unknown, requestId: string): boolean {
+  if (typeof body !== 'object' || body === null) {
+    return false;
+  }
+
+  return (body as ISupplierIssueSuccessBody).request_id === requestId;
 }
 
 export function extractSupplierCode(body: unknown): string | null {
@@ -119,8 +140,18 @@ export function classifySupplierHttpStatus(status: number, body: unknown): IHttp
     return { kind: SUPPLIER_OUTCOME.OUT_OF_STOCK, errorKind: SUPPLIER_ERROR_KIND.OUT_OF_STOCK, reason };
   }
 
+  // 5xx определён ровно тогда, когда поставщик ответил в своём контракте: тело
+  // {"status":"error"} доказывает, что до минтинга дело не дошло. Всё остальное (пустое тело,
+  // HTML от прокси/LB/ingress, обрыв уже после выдачи кода) не доказывает ничего и обязано
+  // остаться неоднозначным — иначе повтор уйдёт с НОВЫМ request_id и даст двойную выдачу.
+  // Осознанный компромисс: поставщик, который заминтил код и всё же ответил корректным
+  // {"status":"error"} 500, по-прежнему даст двойную выдачу. Это нарушение его собственного
+  // контракта, а объявление ВСЕХ 5xx неоднозначными сожгло бы бюджет дозвонов на каждой
+  // рядовой ошибке и сломало бы тайминг фолбэка A→B, который требует показать задание.
   if (status >= HTTP_STATUS_SERVER_ERROR_MIN) {
-    return { kind: SUPPLIER_OUTCOME.UNAVAILABLE, errorKind: SUPPLIER_ERROR_KIND.HTTP_5XX, reason };
+    return isSupplierErrorBody(body)
+      ? { kind: SUPPLIER_OUTCOME.UNAVAILABLE, errorKind: SUPPLIER_ERROR_KIND.HTTP_5XX, reason }
+      : { kind: SUPPLIER_OUTCOME.UNKNOWN, errorKind: SUPPLIER_ERROR_KIND.HTTP_5XX, reason };
   }
 
   if (status >= HTTP_STATUS_CLIENT_ERROR_MIN) {

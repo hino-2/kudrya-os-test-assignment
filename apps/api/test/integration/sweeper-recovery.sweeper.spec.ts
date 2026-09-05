@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { AppConfigService } from '../../src/common/config/app-config.service';
 import { UnitOfWorkService } from '../../src/common/db/unit-of-work.service';
+import { DeliveryAttemptRepository } from '../../src/delivery/delivery-attempt.repository';
 import { ATTEMPT_STATE } from '../../src/delivery/delivery.constants';
 import { JOB_KIND, JOB_STATE } from '../../src/jobs/jobs.constants';
 import type { IEnqueueJobInput, IJobRow } from '../../src/jobs/jobs.interfaces';
@@ -28,6 +30,8 @@ interface IDeliveryAttemptRow {
   state: string;
   error_kind: string | null;
   error_reason: string | null;
+  resolve_attempts: number;
+  next_resolve_at: Date | null;
 }
 
 interface IPaymentEventRow {
@@ -71,8 +75,8 @@ const SELECT_ORDER_BY_EXT_ID_SQL = 'SELECT * FROM orders WHERE ext_id = $1';
 
 const INSERT_DELIVERY_ATTEMPT_SQL = `
   INSERT INTO delivery_attempts (order_id, supplier_code, attempt_no, request_id, sku, delivery_generation,
-                                 state, started_at, next_resolve_at)
-  VALUES ($1, 'A', 1, $2, 'SWEEPER-SKU', $6, $3, $4, $5)
+                                 state, started_at, next_resolve_at, resolve_attempts)
+  VALUES ($1, 'A', 1, $2, 'SWEEPER-SKU', $6, $3, $4, $5, $7)
   RETURNING id
 `;
 
@@ -177,6 +181,7 @@ interface IInsertAttemptOptions {
   startedAt?: Date | null;
   nextResolveAt?: Date | null;
   deliveryGeneration?: number;
+  resolveAttempts?: number;
 }
 
 async function insertAttempt(options: IInsertAttemptOptions): Promise<number> {
@@ -187,6 +192,7 @@ async function insertAttempt(options: IInsertAttemptOptions): Promise<number> {
     options.startedAt ?? null,
     options.nextResolveAt ?? null,
     options.deliveryGeneration ?? 0,
+    options.resolveAttempts ?? 0,
   ]);
 
   return rows[0].id;
@@ -433,20 +439,25 @@ describe('sweeper (recovery passes)', () => {
     expect(attempt.error_kind).toBe('inflight_expired');
     expect(attempt.error_reason).toBe(SWEEPER_INFLIGHT_DEMOTED_REASON);
 
+    // pass 5a насчитал первый дозвон, pass 5b — второй: claim самопродвигающийся
+    expect(attempt.resolve_attempts).toBe(2);
+    expect(attempt.next_resolve_at).not.toBeNull();
+    expect(new Date(attempt.next_resolve_at as Date).getTime()).toBeGreaterThan(Date.now());
+
     const job = await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id));
 
     expect(job).toBeDefined();
   });
 
-  it('pass 5b: redrives an already-unknown attempt whose resolve time has arrived', async () => {
+  it('pass 5b: redrives an already-unknown attempt whose resolve time has arrived and advances it', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
     const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
-
-    await insertAttempt({
+    const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.UNKNOWN,
       nextResolveAt: new Date(Date.now() - 1000),
+      resolveAttempts: 1,
     });
 
     const result = await sweeper.runOnce();
@@ -454,9 +465,70 @@ describe('sweeper (recovery passes)', () => {
     expect(result.demotedStaleInflight).toBe(0);
     expect(result.redrivenUnknownAttempts).toBe(1);
 
+    const attempt = await fetchAttempt(attemptId);
+
+    // H3: без инкремента и сдвига next_resolve_at pass 5b ставил бы ту же джобу на каждом тике
+    expect(attempt.resolve_attempts).toBe(2);
+    expect(new Date(attempt.next_resolve_at as Date).getTime()).toBeGreaterThan(Date.now());
+
     const job = await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id));
 
     expect(job).toBeDefined();
+  });
+
+  // H3, доказательство завершаемости: на потолке дозвонов планирование прекращается —
+  // разрешать и отказываться от такой попытки может только сама джоба доставки (см. spec 07)
+  it('pass 5b: stops selecting an unknown attempt once it reached the resolve cap', async () => {
+    const sweeper = harness.get(SweeperService);
+    const config = harness.get(AppConfigService);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const attemptId = await insertAttempt({
+      orderId: order.id,
+      state: ATTEMPT_STATE.UNKNOWN,
+      nextResolveAt: new Date(Date.now() - 1000),
+      resolveAttempts: config.supplier.unknownMaxResolveAttempts,
+    });
+
+    const result = await sweeper.runOnce();
+
+    expect(result.redrivenUnknownAttempts).toBe(0);
+
+    const attempt = await fetchAttempt(attemptId);
+
+    expect(attempt.resolve_attempts).toBe(config.supplier.unknownMaxResolveAttempts);
+    expect(attempt.state).toBe(ATTEMPT_STATE.UNKNOWN);
+    expect(await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id))).toBeUndefined();
+  });
+
+  // H3: заказ уже завершён delivery_failed (и на потолке поколений, поэтому pass 4 его не берёт) —
+  // оставшаяся unknown-попытка больше не должна ставить джобу вечно
+  it('pass 5b: ignores an unknown attempt whose order is already delivery_failed', async () => {
+    const sweeper = harness.get(SweeperService);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERY_FAILED,
+      deliveryGeneration: 3,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
+    });
+    const attemptId = await insertAttempt({
+      orderId: order.id,
+      state: ATTEMPT_STATE.UNKNOWN,
+      nextResolveAt: new Date(Date.now() - 1000),
+      deliveryGeneration: 3,
+    });
+
+    const result = await sweeper.runOnce();
+
+    expect(result.retriedDeliveryFailed).toBe(0);
+    expect(result.redrivenUnknownAttempts).toBe(0);
+
+    const attempt = await fetchAttempt(attemptId);
+
+    expect(attempt.resolve_attempts).toBe(0);
+    expect(await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id))).toBeUndefined();
   });
 
   it('pass 5a: leaves a fresh in_flight attempt alone', async () => {
@@ -472,6 +544,42 @@ describe('sweeper (recovery passes)', () => {
     const attempt = await fetchAttempt(attemptId);
 
     expect(attempt.state).toBe(ATTEMPT_STATE.IN_FLIGHT);
+  });
+
+  // фенсинг abandoned-CAS (MARK_ATTEMPT_ABANDONED_SQL): бросить возобновлённую in_flight-попытку
+  // разрешено только тому, кто сам её возобновил, — иначе два воркера на одной попытке разошлись бы
+  // (один бросает и минтит у B, второй в это же время получает код от A). Второй assert заодно
+  // пин на округление timestamptz: драйвер отдаёт миллисекунды, Postgres хранит микросекунды,
+  // поэтому точное равенство started_at не совпало бы никогда и resolve-путь встал бы навсегда
+  it('marks an attempt abandoned only for the started_at of its own resume', async () => {
+    const unitOfWork = harness.get(UnitOfWorkService);
+    const repository = harness.get(DeliveryAttemptRepository);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const attemptId = await insertAttempt({
+      orderId: order.id,
+      state: ATTEMPT_STATE.UNKNOWN,
+      nextResolveAt: new Date(),
+    });
+
+    const foreign = await unitOfWork.withTransaction(async (qr) => {
+      const resumed = await repository.resumeAttempt(qr, attemptId);
+      const startedAt = resumed?.started_at as Date;
+
+      return repository.markAbandoned(qr, attemptId, new Date(startedAt.getTime() - 1));
+    });
+
+    expect(foreign).toBe(false);
+    expect((await fetchAttempt(attemptId)).state).toBe(ATTEMPT_STATE.IN_FLIGHT);
+
+    const owned = await unitOfWork.withTransaction(async (qr) => {
+      const resumed = await repository.resumeAttempt(qr, attemptId);
+
+      return repository.markAbandoned(qr, attemptId, resumed?.started_at ?? null);
+    });
+
+    expect(owned).toBe(true);
+    expect((await fetchAttempt(attemptId)).state).toBe(ATTEMPT_STATE.ABANDONED_UNKNOWN);
   });
 
   it('pass 6a: replays an orphan payment event once its order has appeared', async () => {

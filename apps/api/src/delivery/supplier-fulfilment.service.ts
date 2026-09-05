@@ -25,9 +25,12 @@ import { DeliveryRetryRequiredError } from './delivery-retry-required.error';
 import {
   ATTEMPT_STATE,
   DELIVERY_ATTEMPT_LOST_MESSAGE,
+  DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE,
+  DELIVERY_LOOKUP_NOT_ISSUED_REASON,
   DELIVERY_OUT_OF_STOCK_REASON,
   DELIVERY_OUTCOME,
   ISSUED_DELIVERY_LOST_MESSAGE,
+  SETTLE_VIA,
   SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE,
   SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE,
 } from './delivery.constants';
@@ -43,8 +46,9 @@ import type {
   IFulfilInput,
   IFulfilmentService,
   ILockedOrderRow,
+  IResumedOpenAttempt,
 } from './delivery.interfaces';
-import type { PrepareStepResult, SettleStepResult } from './delivery.type';
+import type { PrepareStepResult, SettleStepResult, SettleVia } from './delivery.type';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -73,12 +77,9 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     const deadline = Date.now() + this.config.supplier.jobBudgetMs;
 
     for (;;) {
-      const prepared = await this.unitOfWork.withTransaction((qr) => this.prepareStep(qr, input));
-
-      if (prepared.kind === 'terminal') {
-        return prepared.result;
-      }
-
+      // проверка бюджета обязана стоять ДО prepareStep: иначе TX-S1 успевает закоммитить строку
+      // попытки и request_id, которые никуда не отправлялись, и она висит in_flight до демоции
+      // свипером, съедая один дозвон за HTTP-вызов, которого не было
       if (Date.now() >= deadline) {
         if (this.isLastAttempt(input)) {
           return this.forceDeliveryFailed(input, buildSupplierJobLastAttemptMessage(SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE));
@@ -90,14 +91,29 @@ export class SupplierFulfilmentService implements IFulfilmentService {
         });
       }
 
-      const outcome = await this.supplierClient.issue({
-        supplierCode: prepared.attempt.supplier_code,
-        requestId: prepared.attempt.request_id,
-        sku: prepared.attempt.sku,
-        orderExtId: prepared.order.ext_id,
-      });
+      const prepared = await this.unitOfWork.withTransaction((qr) => this.prepareStep(qr, input));
 
-      const settled = await this.unitOfWork.withTransaction((qr) => this.settleStep(qr, input, prepared.attempt, outcome));
+      if (prepared.kind === 'terminal') {
+        return prepared.result;
+      }
+
+      const via = prepared.kind === 'resolve' ? SETTLE_VIA.RESOLVE : SETTLE_VIA.ISSUE;
+      // HTTP строго между двумя закоммиченными транзакциями (TX-S1 / HTTP / TX-S2): ни один
+      // QueryRunner здесь не открыт — ровно поэтому отказ от неоднозначной попытки вынесен
+      // из prepareStep в resolve-ветку settleStep
+      const outcome =
+        via === SETTLE_VIA.RESOLVE
+          ? await this.supplierClient.lookup(prepared.attempt.supplier_code, prepared.attempt.request_id)
+          : await this.supplierClient.issue({
+              supplierCode: prepared.attempt.supplier_code,
+              requestId: prepared.attempt.request_id,
+              sku: prepared.attempt.sku,
+              orderExtId: prepared.order.ext_id,
+            });
+
+      const settled = await this.unitOfWork.withTransaction((qr) =>
+        this.settleStep(qr, input, prepared.attempt, outcome, via),
+      );
 
       if (settled.kind === 'terminal') {
         return settled.result;
@@ -175,10 +191,12 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});
     }
 
-    const resumed = await this.resumeOrAbandonOpenAttempt(qr, order);
+    const resumed = await this.resumeOpenAttempt(qr, order);
 
     if (resumed !== null) {
-      return { kind: 'attempt', attempt: resumed, order };
+      return resumed.needsLookup
+        ? { kind: 'resolve', attempt: resumed.attempt, order }
+        : { kind: 'attempt', attempt: resumed.attempt, order };
     }
 
     return this.pickNextAttempt(qr, order);
@@ -199,42 +217,37 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     return null;
   }
 
-  // возобновляет уже открытую попытку (in_flight после сбоя воркера, unknown в ожидании дозвона);
-  // при исчерпании бюджета дозвонов помечает её abandoned_unknown и возвращает null, чтобы
-  // pickNextAttempt подобрал следующего поставщика в этом же прогоне джобы
-  private async resumeOrAbandonOpenAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryAttemptRow | null> {
+  // возобновляет уже открытую попытку (in_flight после сбоя воркера, unknown в ожидании дозвона).
+  // needsLookup=true означает, что бюджет слепых POST-реплеев исчерпан и статус заявки надо
+  // выяснить авторитетным GET /issue/:request_id. Попытка переводится в in_flight в обоих
+  // случаях: без этого CAS finalizeSucceeded/finalizeFailed не совпадёт, а свипер (pass 5a)
+  // мог бы демотировать её прямо во время вызова
+  private async resumeOpenAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<IResumedOpenAttempt | null> {
     const open = await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id);
 
     if (open === null) {
       return null;
     }
 
-    if (open.state === ATTEMPT_STATE.UNKNOWN && open.resolve_attempts >= this.config.supplier.unknownMaxResolveAttempts) {
-      await this.deliveryAttemptRepository.markAbandoned(qr, open.id);
-      this.logger.event(LOG_EVENT.DELIVERY_STRANDED_ISSUANCE, {
-        order_id: order.id,
-        supplier_code: open.supplier_code,
-        request_id: open.request_id,
-        reason: 'unknown_budget_exhausted',
-      });
-
-      return null;
-    }
-
+    const needsLookup =
+      open.state === ATTEMPT_STATE.UNKNOWN &&
+      open.resolve_attempts >= this.config.supplier.unknownMaxResolveAttempts;
     const resumed = await this.deliveryAttemptRepository.resumeAttempt(qr, open.id);
 
     if (resumed === null) {
       throw new DomainError(ERROR_CODE.INTERNAL_ERROR, DELIVERY_ATTEMPT_LOST_MESSAGE);
     }
 
-    this.logger.event(LOG_EVENT.DELIVERY_ATTEMPT_RESOLVING, {
-      order_id: order.id,
-      supplier_code: resumed.supplier_code,
-      request_id: resumed.request_id,
-      state: open.state,
-    });
+    if (!needsLookup) {
+      this.logger.event(LOG_EVENT.DELIVERY_ATTEMPT_RESOLVING, {
+        order_id: order.id,
+        supplier_code: resumed.supplier_code,
+        request_id: resumed.request_id,
+        state: open.state,
+      });
+    }
 
-    return resumed;
+    return { attempt: resumed, needsLookup };
   }
 
   private async pickNextAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<PrepareStepResult> {
@@ -308,6 +321,7 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     input: IFulfilInput,
     attempt: IDeliveryAttemptRow,
     outcome: ISupplierIssueResult,
+    via: SettleVia,
   ): Promise<SettleStepResult> {
     const order = await this.deliveryRepository.lockOrderForDelivery(qr, input.orderId);
 
@@ -319,6 +333,12 @@ export class SupplierFulfilmentService implements IFulfilmentService {
 
     if (outcome.kind === SUPPLIER_OUTCOME.ISSUED) {
       return this.settleIssued(qr, order, attempt, outcome, stale);
+    }
+
+    // resolve-шаг уже был последней инстанцией: promoteToUnknown здесь запрещён, иначе бюджет
+    // дозвонов заново раздувается и цикл «слепой POST — дозвон» не завершается никогда
+    if (via === SETTLE_VIA.RESOLVE) {
+      return this.settleResolved(qr, order, attempt, outcome, stale);
     }
 
     if (outcome.kind === SUPPLIER_OUTCOME.UNKNOWN) {
@@ -341,14 +361,89 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
     }
 
-    // повтор того же поставщика допустим только при http_5xx (см. isRetriableSameSupplier) —
-    // pickSupplier на следующей итерации сам решит, повторять того же поставщика или идти дальше
-    const sleepMs =
-      errorKind === SUPPLIER_ERROR_KIND.HTTP_5XX
-        ? computeBackoffMs(attempt.attempt_no, { baseMs: this.config.supplier.retryBaseMs, maxMs: this.config.supplier.retryMaxMs })
-        : null;
+    return { kind: 'continue', sleepMs: this.sameSupplierBackoffMs(attempt, errorKind) };
+  }
 
-    return { kind: 'continue', sleepMs };
+  // повтор того же поставщика допустим только при http_5xx (см. isRetriableSameSupplier) —
+  // pickSupplier на следующей итерации сам решит, повторять того же поставщика или идти дальше
+  private sameSupplierBackoffMs(attempt: IDeliveryAttemptRow, errorKind: SupplierErrorKind): number | null {
+    if (errorKind !== SUPPLIER_ERROR_KIND.HTTP_5XX) {
+      return null;
+    }
+
+    return computeBackoffMs(attempt.attempt_no, {
+      baseMs: this.config.supplier.retryBaseMs,
+      maxMs: this.config.supplier.retryMaxMs,
+    });
+  }
+
+  // исход авторитетного GET /issue/:request_id: либо поставщик сам отрицает заявку (404 —
+  // определённая неудача), либо он не ответил и на чтение
+  private async settleResolved(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+    attempt: IDeliveryAttemptRow,
+    outcome: ISupplierIssueResult,
+    stale: boolean,
+  ): Promise<SettleStepResult> {
+    const skipped: SettleStepResult = { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
+    // проигранный CAS = строку увели (демоция свипером из in_flight в unknown, второй воркер).
+    // Возвращать 'continue' здесь нельзя: needsLookup залипает (resolve_attempts только растёт),
+    // и цикл ушёл бы в непрерывные GET без sleep до конца бюджета джобы. Повтор задачи, наоборот,
+    // перечитает состояние под бэкоффом уровня джобы
+    const conflict: SettleStepResult = { kind: 'retry_required', message: DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE };
+
+    if (outcome.errorKind === SUPPLIER_ERROR_KIND.NOT_ISSUED) {
+      // сохраняем ИСХОДНЫЙ error_kind попытки: именно по нему isRetriableSameSupplier решает,
+      // повторять ли того же поставщика — подтверждённый «не выдавал» после http_5xx должен
+      // вести себя ровно как определённый http_5xx, а не как новый вид неудачи
+      const errorKind = attempt.error_kind ?? SUPPLIER_ERROR_KIND.NOT_ISSUED;
+      const finalized = await this.deliveryAttemptRepository.finalizeFailed(qr, {
+        attemptId: attempt.id,
+        httpStatus: outcome.httpStatus,
+        errorKind,
+        errorReason: DELIVERY_LOOKUP_NOT_ISSUED_REASON,
+        durationMs: outcome.durationMs,
+      });
+
+      if (!finalized) {
+        return conflict;
+      }
+
+      this.logger.event(LOG_EVENT.DELIVERY_ATTEMPT_RESOLVED, {
+        order_id: order.id,
+        supplier_code: attempt.supplier_code,
+        request_id: attempt.request_id,
+        resolution: 'not_issued',
+      });
+
+      if (stale) {
+        return skipped;
+      }
+
+      // тот же бэкофф, что и у определённой неудачи: pickSupplier на следующей итерации может
+      // повторить того же поставщика по сохранённому http_5xx, и делать это мгновенно после
+      // серии таймаутов и 404 бессмысленно
+      return { kind: 'continue', sleepMs: this.sameSupplierBackoffMs(attempt, errorKind) };
+    }
+
+    // поставщик не ответил ни на бюджет слепых POST, ни на один авторитетный GET. Осознанный
+    // остаточный риск: оставить оплаченный заказ навсегда недоставляемым хуже, чем громко
+    // залогировать зависшую выдачу и отдать заказ следующему поставщику в этом же прогоне
+    const abandoned = await this.deliveryAttemptRepository.markAbandoned(qr, attempt.id, attempt.started_at);
+
+    if (!abandoned) {
+      return conflict;
+    }
+
+    this.logger.event(LOG_EVENT.DELIVERY_STRANDED_ISSUANCE, {
+      order_id: order.id,
+      supplier_code: attempt.supplier_code,
+      request_id: attempt.request_id,
+      reason: 'unknown_unresolved_after_lookup',
+    });
+
+    return stale ? skipped : { kind: 'continue', sleepMs: null };
   }
 
   private async settleIssued(
@@ -470,18 +565,9 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
     }
 
-    if (resolveAttempts >= this.config.supplier.unknownMaxResolveAttempts) {
-      await this.deliveryAttemptRepository.markAbandoned(qr, attempt.id);
-      this.logger.event(LOG_EVENT.DELIVERY_STRANDED_ISSUANCE, {
-        order_id: order.id,
-        supplier_code: attempt.supplier_code,
-        request_id: attempt.request_id,
-        reason: 'unknown_budget_exhausted',
-      });
-
-      return { kind: 'continue', sleepMs: null };
-    }
-
+    // потолок unknownMaxResolveAttempts больше не означает «сдаться»: это переключатель со
+    // слепого POST-реплея на авторитетный GET. Следующий прогон джобы войдёт в resolve-путь
+    // (см. resumeOpenAttempt) — отказ принимает только он
     return { kind: 'retry_required', message: buildDeliveryAttemptUnknownRetryMessage(attempt.request_id) };
   }
 
