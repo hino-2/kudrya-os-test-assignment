@@ -4,6 +4,14 @@ export const ENV_FILE_PATHS = ['.env', '../../.env'] as const;
 
 export const CONFIG_ERROR_HEADER = 'Некорректная конфигурация окружения';
 
+// публичный дефолт для локальной разработки; в production запрещён cross-rule ниже
+export const ADMIN_TOKEN_DEV_DEFAULT = 'dev-admin-token';
+
+// 32 символа — длина hex-представления 16 случайных байт (`openssl rand -hex 16`), то есть
+// 128 бит энтропии: перебор по сети бессмыслен. Порог заодно отсекает придуманные вручную
+// пароли вида "admin123", которые в такую длину практически не попадают.
+export const ADMIN_TOKEN_MIN_LENGTH = 32;
+
 export const ENV_SPEC: readonly IEnvVarSpec[] = [
   { name: 'NODE_ENV', kind: 'enum', default: 'development', values: ['development', 'test', 'production'] },
   { name: 'PORT', kind: 'int', default: 3000, min: 1, max: 65535 },
@@ -42,8 +50,8 @@ export const ENV_SPEC: readonly IEnvVarSpec[] = [
   { name: 'ATTEMPT_INFLIGHT_TIMEOUT_MS', kind: 'int', default: 30000, min: 1000, max: 600000 },
   { name: 'ORPHAN_TTL_SECONDS', kind: 'int', default: 3600, min: 1, max: 604800 },
   { name: 'STOCK_RECONCILE_INTERVAL_MS', kind: 'int', default: 60000, min: 1000, max: 3600000 },
-  { name: 'ADMIN_API_ENABLED', kind: 'bool', default: true },
-  { name: 'ADMIN_TOKEN', kind: 'string', default: 'dev-admin-token', allowEmpty: true },
+  { name: 'ADMIN_API_ENABLED', kind: 'bool', default: false },
+  { name: 'ADMIN_TOKEN', kind: 'string', default: ADMIN_TOKEN_DEV_DEFAULT, allowEmpty: true },
   { name: 'CATALOG_DEFAULT_LIMIT', kind: 'int', default: 24, min: 1, max: 100 },
   { name: 'CATALOG_MAX_LIMIT', kind: 'int', default: 100, min: 1, max: 1000 },
 ] as const;
@@ -78,5 +86,40 @@ export const ENV_CROSS_RULES: readonly IEnvCrossRule[] = [
             name: 'JOB_RETRY_BASE_MS',
             reason: 'JOB_RETRY_BASE_MS не может превышать JOB_RETRY_MAX_MS',
           },
+  },
+  {
+    // /admin/* минтит остатки и бампит поколение доставки, поэтому в production токен обязан
+    // быть настоящим: пустое значение отключает гард целиком (AppConfigService.guardDisabled),
+    // а публичный дефолт из репозитория известен всем. Вне production правило не применяется —
+    // локальная отладка и сьюта admin-open продолжают работать с пустым токеном.
+    fields: ['NODE_ENV', 'ADMIN_API_ENABLED', 'ADMIN_TOKEN'],
+    check: (env) => {
+      if (env.NODE_ENV !== 'production' || !env.ADMIN_API_ENABLED) {
+        return null;
+      }
+
+      if (env.ADMIN_TOKEN === '') {
+        return {
+          name: 'ADMIN_TOKEN',
+          reason: 'при NODE_ENV=production и ADMIN_API_ENABLED=true ADMIN_TOKEN не может быть пустым: пустое значение отключает проверку токена',
+        };
+      }
+
+      if (env.ADMIN_TOKEN === ADMIN_TOKEN_DEV_DEFAULT) {
+        return {
+          name: 'ADMIN_TOKEN',
+          reason: `в production ADMIN_TOKEN не может совпадать с публичным дефолтом "${ADMIN_TOKEN_DEV_DEFAULT}"`,
+        };
+      }
+
+      if (env.ADMIN_TOKEN.length < ADMIN_TOKEN_MIN_LENGTH) {
+        return {
+          name: 'ADMIN_TOKEN',
+          reason: `в production ADMIN_TOKEN должен быть не короче ${ADMIN_TOKEN_MIN_LENGTH} символов, получено ${env.ADMIN_TOKEN.length}`,
+        };
+      }
+
+      return null;
+    },
   },
 ];

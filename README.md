@@ -216,7 +216,7 @@ curl -s http://localhost:3000/catalog
 | `SUPPLIER_A_BASE_URL`, `SUPPLIER_B_BASE_URL`            | `apps/api`, `tools`  | базовые URL заглушек поставщиков                               |
 | `SUPPLIER_REQUEST_TIMEOUT_MS`                           | `apps/api`           | таймаут одного вызова к поставщику (по умолчанию `2000`)       |
 | `WORKER_ENABLED`, `SWEEPER_ENABLED`                     | `apps/api`           | включение воркера задач и sweeper'а восстановления             |
-| `ADMIN_API_ENABLED`, `ADMIN_TOKEN`                      | `apps/api`           | доступность `/admin/*` и значение заголовка `x-admin-token`    |
+| `ADMIN_API_ENABLED`, `ADMIN_TOKEN`                      | `apps/api`           | доступность `/admin/*` (по умолчанию `false`) и `x-admin-token` |
 | `SUPPLIER_ID`                                           | `apps/supplier-stub` | идентификатор стенда: `A` / `B`                                |
 | `STUB_FAIL_RATE`, `STUB_TIMEOUT_RATE`, `STUB_SLOW_RATE` | `apps/supplier-stub` | доли отказов / зависаний / медленных ответов в режиме `normal` |
 | `API_BASE_URL`                                          | `tools`              | базовый URL API для CLI-скриптов                               |
@@ -372,9 +372,16 @@ curl -s http://localhost:3000/catalog
 ### 5.5 Admin
 
 Все `/admin/*` требуют заголовок `x-admin-token`, сверяемый с `ADMIN_TOKEN` константным по времени
-сравнением. `ADMIN_API_ENABLED=false` отключает весь `/admin/*` целиком (`403 ADMIN_DISABLED`
-независимо от токена). Пустой `ADMIN_TOKEN=` снимает саму проверку токена — удобно для локальной
-отладки, недопустимо в проде.
+сравнением. **`ADMIN_API_ENABLED` по умолчанию `false`** — админка закрыта целиком
+(`403 ADMIN_DISABLED` независимо от токена), пока её не включили явно; `.env.example` и
+`docker-compose.yml` выставляют `true` для локального стенда. Пустой `ADMIN_TOKEN=` снимает саму
+проверку токена — удобно для локальной отладки, но в проде недостижимо: при
+`NODE_ENV=production` вместе с `ADMIN_API_ENABLED=true` валидатор конфига требует, чтобы
+`ADMIN_TOKEN` был непустым, не совпадал с публичным дефолтом `dev-admin-token` и был не короче
+32 символов, иначе приложение не стартует (§10 spec, `ENV_CROSS_RULES`). Локальный стенд из
+`docker-compose.yml` идёт с `NODE_ENV=production`, поэтому его токен —
+`local-stand-admin-token-change-me` (переопределяется переменной `STAND_ADMIN_TOKEN`, см.
+`.env.example`); именно он подставлен в примеры `curl` в §6.4.
 
 **`POST /admin/sweeper/run`** — форсировать один внеочередной прогон всех 6 проходов sweeper'а
 (§2.5). Тело не нужно. Ответ `200` — счётчик тронутых строк по каждому проходу:
@@ -536,11 +543,11 @@ curl -s http://localhost:3000/orders/ord_00123
 
 # 3. пополнить остаток
 curl -s -X POST http://localhost:3000/admin/products/KEY-GTA5/restock \
-  -H 'x-admin-token: dev-admin-token' -H 'content-type: application/json' \
+  -H 'x-admin-token: local-stand-admin-token-change-me' -H 'content-type: application/json' \
   -d '{"count":5}'
 
 # 4. дождаться тика sweeper'а (или форсировать его) и убедиться, что заказ доставлен
-curl -s -X POST http://localhost:3000/admin/sweeper/run -H 'x-admin-token: dev-admin-token'
+curl -s -X POST http://localhost:3000/admin/sweeper/run -H 'x-admin-token: local-stand-admin-token-change-me'
 curl -s http://localhost:3000/orders/ord_00123
 ```
 
@@ -548,7 +555,7 @@ curl -s http://localhost:3000/orders/ord_00123
 
 ```bash
 curl -s -X POST http://localhost:3000/admin/orders/ord_00123/redeliver \
-  -H 'x-admin-token: dev-admin-token' -H 'content-type: application/json' \
+  -H 'x-admin-token: local-stand-admin-token-change-me' -H 'content-type: application/json' \
   -d '{"reason":"manual retry after restock"}'
 ```
 

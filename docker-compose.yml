@@ -31,7 +31,14 @@ services:
       SUPPLIER_B_BASE_URL: http://supplier-b:4002
       LOG_LEVEL: info
       LOG_FORMAT: json
-      ADMIN_TOKEN: dev-admin-token
+      # локальный стенд идёт с NODE_ENV=production, поэтому админку нужно включить явно,
+      # а токен обязан пройти ENV_CROSS_RULES (непустой, не dev-дефолт, >= 32 символов).
+      # Имя STAND_ADMIN_TOKEN, а не ADMIN_TOKEN: compose подставляет переменные из корневого
+      # .env, а он локальный для разработчика и вправе держать значение, допустимое при
+      # NODE_ENV=development (пустое, dev-дефолт, короткое), но запрещённое внутри контейнера.
+      # Отдельное имя не даёт такому значению уронить стенд на старте.
+      ADMIN_API_ENABLED: 'true'
+      ADMIN_TOKEN: ${STAND_ADMIN_TOKEN:-local-stand-admin-token-change-me}
     depends_on:
       postgres:
         condition: service_healthy

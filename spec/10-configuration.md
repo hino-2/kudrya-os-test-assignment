@@ -45,10 +45,12 @@
 | `ATTEMPT_INFLIGHT_TIMEOUT_MS` | int | `30000` | `in_flight` → `unknown` demotion age |
 | `ORPHAN_TTL_SECONDS` | int | `3600` | orphan → `abandoned` age |
 | `STOCK_RECONCILE_INTERVAL_MS` | int | `60000` | drift-repair period |
-| `ADMIN_API_ENABLED` | bool | `true` | expose `/admin/*` |
-| `ADMIN_TOKEN` | string | `dev-admin-token` | `x-admin-token` value; empty disables the guard |
+| `ADMIN_API_ENABLED` | bool | `false` | expose `/admin/*`; off unless explicitly enabled |
+| `ADMIN_TOKEN` | string | `dev-admin-token` | `x-admin-token` value; empty disables the guard (development only) |
 | `CATALOG_DEFAULT_LIMIT` | int | `24` | catalog page size |
 | `CATALOG_MAX_LIMIT` | int | `100` | catalog page cap |
+
+Cross-field rules (checked in the same aggregated pass): `CATALOG_DEFAULT_LIMIT <= CATALOG_MAX_LIMIT`, `SUPPLIER_RETRY_BASE_MS <= SUPPLIER_RETRY_MAX_MS`, `JOB_RETRY_BASE_MS <= JOB_RETRY_MAX_MS`, and — when `NODE_ENV=production` **and** `ADMIN_API_ENABLED=true` — `ADMIN_TOKEN` must be non-empty, must differ from the published `dev-admin-token`, and must be at least 32 characters. **The admin API is off unless explicitly enabled**, and production cannot boot into the "empty token disables the guard" state; that escape hatch stays available for development only.
 
 ### 10.2 `apps/supplier-stub`
 
@@ -69,7 +71,7 @@
 
 ### 10.3 `tools`
 
-`API_BASE_URL` (`http://localhost:3000`), `SUPPLIER_A_BASE_URL`, `SUPPLIER_B_BASE_URL`, `ADMIN_TOKEN`, `DATABASE_URL` (seed scripts only), plus per-script CLI flags parsed with `node:util` `parseArgs` — no CLI-parsing dependency.
+`API_BASE_URL` (`http://localhost:3000`), `SUPPLIER_A_BASE_URL`, `SUPPLIER_B_BASE_URL`, `DATABASE_URL` (seed scripts only), plus per-script CLI flags parsed with `node:util` `parseArgs` — no CLI-parsing dependency. No CLI script calls `/admin/*`, so `tools` needs no admin token.
 
 `.env.example` lists every variable above, grouped by service, each with a one-line Russian comment. Docker Compose sets rates to the defaults above; **CI and integration tests force all three rates to `0`.**
 

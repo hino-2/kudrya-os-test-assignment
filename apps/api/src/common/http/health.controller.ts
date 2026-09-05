@@ -1,4 +1,4 @@
-import { Controller, Get, HttpCode, Res } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import type { IHealthResponse, IReadinessResponse } from './health.interfaces';
@@ -19,15 +19,17 @@ export class HealthController {
     };
   }
 
+  // Ответ отправляется вручную (@Res без passthrough), а не через @HttpCode + res.status():
+  // при passthrough Nest после хендлера ещё раз зовёт reply(res, body, httpStatusCode), и то,
+  // переживёт ли ручной 503 этот вызов, зависит от того, доедет ли httpStatusCode до замыкания
+  // handleResponse — недокументированная деталь ядра. Код ответа readiness-пробы слишком дорог,
+  // чтобы зависеть от неё.
   @Get('ready')
-  @HttpCode(READINESS_OK_STATUS)
-  async ready(@Res({ passthrough: true }) res: Response): Promise<IReadinessResponse> {
+  async ready(@Res() res: Response): Promise<void> {
     const { status, components } = await this.registry.check();
+    const body: IReadinessResponse = { status, ...components };
+    const httpStatus = status === 'degraded' ? READINESS_DEGRADED_STATUS : READINESS_OK_STATUS;
 
-    if (status === 'degraded') {
-      res.status(READINESS_DEGRADED_STATUS);
-    }
-
-    return { status, ...components };
+    res.status(httpStatus).json(body);
   }
 }

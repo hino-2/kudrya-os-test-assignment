@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 jobs:
@@ -27,6 +27,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+
+  # отдельная job: tsconfig.build.json (rootDir src, exclude test/**) имеет свой набор файлов
+  # и свою конфигурацию эмита, поэтому typecheck по tsconfig.json его не покрывает
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
 
   unit:
     runs-on: ubuntu-latest

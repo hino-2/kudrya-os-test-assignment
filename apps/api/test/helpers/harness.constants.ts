@@ -67,6 +67,10 @@ export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   CATALOG_MAX_LIMIT: String(TEST_CATALOG_MAX_LIMIT),
   SUPPLIER_VIRTUAL_STOCK: String(TEST_SUPPLIER_VIRTUAL_STOCK),
   ADMIN_TOKEN: TEST_ADMIN_TOKEN,
+  // дефолт ENV_SPEC — false (админка закрыта, пока её не включили явно), а /admin/* дёргают
+  // admin-recovery.e2e.spec.ts, supplier-delivery.worker.spec.ts и сьюта admin-open;
+  // env.setup.admin-disabled.ts гасит переменную обратно уже после applyTestEnv()
+  ADMIN_API_ENABLED: 'true',
   // воркер по умолчанию выключен в интеграционных тестах — сьюты включают его явно через envOverrides,
   // иначе фоновый 200ms tick гоняется во всех сьютах и мешает teardown (гонка с app.close())
   WORKER_ENABLED: 'false',
