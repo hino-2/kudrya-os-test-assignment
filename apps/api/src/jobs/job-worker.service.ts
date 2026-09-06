@@ -178,7 +178,23 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
 
   private async settle(job: IJobRow, error: unknown | null): Promise<void> {
     if (error === null) {
-      await this.unitOfWork.withTransaction((qr) => this.queue.complete(qr, job.id));
+      const applied = await this.unitOfWork.withTransaction((qr) =>
+        this.queue.complete(qr, job.id, job.locked_by),
+      );
+
+      // джобу отобрал JOB_REQUEUE_STALE_SQL и её уже исполняет другой воркер: обработчик здесь
+      // отработал успешно (processJob вернёт 'succeeded'), но отмечать чужую строку нельзя
+      if (!applied) {
+        this.logger.event(LOG_EVENT.JOB_OWNERSHIP_LOST, {
+          job_id: job.id,
+          kind: job.kind,
+          attempts: job.attempts,
+          locked_by: job.locked_by,
+        });
+
+        return;
+      }
+
       this.logger.event(LOG_EVENT.JOB_SUCCEEDED, { job_id: job.id, kind: job.kind });
 
       return;
@@ -196,8 +212,22 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
         maxAttempts: job.max_attempts,
         error,
         backoff,
+        lockedBy: job.locked_by,
       }),
     );
+
+    // без этой ветки отобранная джоба вернулась бы в pending под живым исполнителем (и dead-letter
+    // сигнал засорялся бы чужими падениями), поэтому ни job.dead, ни job.retry_scheduled не пишем
+    if (!result.applied) {
+      this.logger.event(LOG_EVENT.JOB_OWNERSHIP_LOST, {
+        job_id: job.id,
+        kind: job.kind,
+        attempts: job.attempts,
+        locked_by: job.locked_by,
+      });
+
+      return;
+    }
 
     if (result.state === JOB_STATE.DEAD) {
       this.logger.error(LOG_EVENT.JOB_DEAD, error, { job_id: job.id, kind: job.kind });

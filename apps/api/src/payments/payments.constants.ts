@@ -31,6 +31,12 @@ export const EVENT_ID_MAX_LENGTH = 128;
 
 export const WEBHOOK_AMOUNT_MIN = 0;
 
+// created_at обязан нести явное смещение: без него new Date() трактует время в таймзоне
+// процесса, и guardStaleness упорядочивает события по-разному в разных окружениях
+export const ISO_8601_WITH_OFFSET_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+export const WEBHOOK_INVALID_CREATED_AT_MESSAGE = 'Поле created_at не является разбираемой датой';
+
 export const WEBHOOK_STATUS_VALUES = [PAYMENT_STATUS.PAID, PAYMENT_STATUS.FAILED] as const;
 
 export const WEBHOOK_CURRENCY_VALUES = ['RUB'] as const;

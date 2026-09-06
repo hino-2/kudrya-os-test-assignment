@@ -60,16 +60,17 @@ export class PoolFulfilmentService implements IFulfilmentService {
       return { outcome: DELIVERY_OUTCOME.SKIPPED, code: null };
     }
 
-    this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
-
+    // логируем только на переходе paid → delivering (как supplier-путь), а не на каждом
+    // повторном прогоне уже delivering-заказа
     if (order.status === ORDER_STATUS.PAID) {
+      this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
       await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});
     }
 
     const key = await this.reserveOrReuseKey(qr, order);
 
     if (key === null) {
-      return this.drainToOutOfStock(qr, order);
+      return this.recountToOutOfStock(qr, order);
     }
 
     const code = await this.issueDelivery(qr, order, key);
@@ -125,9 +126,23 @@ export class PoolFulfilmentService implements IFulfilmentService {
     return reserved;
   }
 
-  private async drainToOutOfStock(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryResult> {
-    await this.inventoryRepository.drainAvailable(qr, order.product_id);
+  // reserveKey отдаёт null и когда свободных ключей нет, и когда все свободные заблокированы
+  // конкурентной транзакцией (FOR UPDATE SKIP LOCKED). Поэтому счётчик пересчитывается по факту,
+  // а не обнуляется: во втором случае заказ честно out_of_stock именно сейчас, но ключи живы,
+  // products.in_stock остаётся true, и повтор делает проход 3 sweeper'а.
+  private async recountToOutOfStock(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryResult> {
+    const available = await this.inventoryRepository.recountAvailable(qr, order.product_id);
+
     await this.inventoryRepository.syncProductInStock(qr, order.product_id);
+
+    if (available > 0) {
+      this.logger.event(LOG_EVENT.INVENTORY_RECOUNTED, {
+        order_id: order.id,
+        product_id: order.product_id,
+        available_count: available,
+      });
+    }
+
     await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.OUT_OF_STOCK, {
       failureReason: DELIVERY_OUT_OF_STOCK_REASON,
     });

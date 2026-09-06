@@ -26,6 +26,8 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      # порядок платёжных событий и occurred_at считаются в UTC независимо от хоста
+      TZ: UTC
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/store
       SUPPLIER_A_BASE_URL: http://supplier-a:4001
       SUPPLIER_B_BASE_URL: http://supplier-b:4002

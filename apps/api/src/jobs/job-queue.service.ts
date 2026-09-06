@@ -61,10 +61,14 @@ export class JobQueueService {
     return rows ?? [];
   }
 
-  async complete(qr: QueryRunner, id: number): Promise<boolean> {
+  async complete(qr: QueryRunner, id: number, lockedBy: string | null): Promise<boolean> {
     this.assertTransaction(qr);
 
-    const [rows] = await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(JOB_COMPLETE_SQL, [id], qr);
+    const [rows] = await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
+      JOB_COMPLETE_SQL,
+      [id, lockedBy],
+      qr,
+    );
 
     return rows.length > 0;
   }
@@ -75,24 +79,24 @@ export class JobQueueService {
     const truncatedError = buildJobErrorText(input.error);
 
     if (input.attempts >= input.maxAttempts) {
-      await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
+      const [deadRows] = await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
         JOB_FAIL_DEAD_SQL,
-        [input.id, truncatedError],
+        [input.id, truncatedError, input.lockedBy],
         qr,
       );
 
-      return { state: JOB_STATE.DEAD, runAt: null };
+      return { state: JOB_STATE.DEAD, runAt: null, applied: deadRows.length > 0 };
     }
 
     const runAt = computeNextRunAt(new Date(), input.attempts, input.backoff);
 
-    await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
+    const [retryRows] = await this.dataSource.query<UpdateReturningResult<IJobIdRow>>(
       JOB_FAIL_RETRY_SQL,
-      [input.id, truncatedError, runAt],
+      [input.id, truncatedError, runAt, input.lockedBy],
       qr,
     );
 
-    return { state: JOB_STATE.PENDING, runAt };
+    return { state: JOB_STATE.PENDING, runAt, applied: retryRows.length > 0 };
   }
 
   async requeueStale(qr: QueryRunner, lockTtlMs: number): Promise<number> {

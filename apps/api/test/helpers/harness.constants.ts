@@ -55,18 +55,57 @@ export const TEST_CATALOG_MAX_LIMIT = 50;
 
 export const TEST_SUPPLIER_VIRTUAL_STOCK = 1000;
 
+// заведомо мёртвые порты: сьюты проекта "integration" не поднимают заглушки, и обращение к
+// поставщику там обязано падать на connection refused, а не попадать в чужой живой стенд из
+// .env разработчика (от этого зависит assert про исход supplier-restock в admin-recovery)
+export const TEST_DEAD_SUPPLIER_A_PORT = 41198;
+
+export const TEST_DEAD_SUPPLIER_B_PORT = 41199;
+
 // пиним значение вместо опоры на дефолт ENV_SPEC: смена дефолта не должна ломать спеки
 // невнятным 401 (env.setup.admin-open.ts переопределяет это уже после applyTestEnv)
 export const TEST_ADMIN_TOKEN = 'dev-admin-token';
 
+// applyTestEnv() загружает .env репозитория (оттуда берётся TEST_DATABASE_URL), поэтому любое
+// значение, от которого зависит assert, обязано быть перекрыто здесь: иначе спека читает
+// .env разработчика или продакшн-дефолт ENV_SPEC, и "зелено локально" не значит "зелено в CI".
+// Пороги, специфичные для свипера, живут в env.setup.sweeper.ts — у них отдельный vitest-проект.
 export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   NODE_ENV: 'test',
+  // ordering платёжных событий и occurred_at считаются в UTC независимо от машины
+  TZ: 'UTC',
   LOG_LEVEL: 'error',
   LOG_FORMAT: 'json',
   CATALOG_DEFAULT_LIMIT: String(TEST_CATALOG_DEFAULT_LIMIT),
   CATALOG_MAX_LIMIT: String(TEST_CATALOG_MAX_LIMIT),
   SUPPLIER_VIRTUAL_STOCK: String(TEST_SUPPLIER_VIRTUAL_STOCK),
   ADMIN_TOKEN: TEST_ADMIN_TOKEN,
+  // orders.e2e/ledger.e2e держат row lock и ждут LOCK_PROBE_MS: таймауты обязаны быть заметно
+  // больше пробы, пул — заметно больше одного соединения (тест держит одно и делает HTTP-запрос)
+  DB_POOL_SIZE: '20',
+  DB_STATEMENT_TIMEOUT_MS: '10000',
+  DB_LOCK_TIMEOUT_MS: '5000',
+  DB_TX_RETRY_ATTEMPTS: '3',
+  // supplier-delivery.worker.spec ждёт ровно 4 попытки (2 поставщика × 2 попытки) в одной claim
+  SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2',
+  SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS: '5',
+  SUPPLIER_RETRY_BASE_MS: '200',
+  SUPPLIER_RETRY_MAX_MS: '2000',
+  SUPPLIER_JOB_BUDGET_MS: '10000',
+  // env.setup.worker-enabled.ts переопределяет URL и таймаут уже после applyTestEnv()
+  SUPPLIER_REQUEST_TIMEOUT_MS: '2000',
+  SUPPLIER_A_BASE_URL: `http://${TEST_HOST}:${TEST_DEAD_SUPPLIER_A_PORT}`,
+  SUPPLIER_B_BASE_URL: `http://${TEST_HOST}:${TEST_DEAD_SUPPLIER_B_PORT}`,
+  // job-queue.e2e ждёт claimedA + claimedB === 8 (нужен batch >= 4),
+  // job-worker-scheduled.worker.spec ждёт реального тика в пределах 5с
+  JOB_POLL_INTERVAL_MS: '200',
+  JOB_BATCH_SIZE: '5',
+  JOB_MAX_ATTEMPTS: '8',
+  JOB_RETRY_BASE_MS: '500',
+  JOB_RETRY_MAX_MS: '30000',
+  JOB_LOCK_TTL_MS: '120000',
+  MAX_DELIVERY_GENERATIONS: '5',
+  ATTEMPT_INFLIGHT_TIMEOUT_MS: '30000',
   // дефолт ENV_SPEC — false (админка закрыта, пока её не включили явно), а /admin/* дёргают
   // admin-recovery.e2e.spec.ts, supplier-delivery.worker.spec.ts и сьюта admin-open;
   // env.setup.admin-disabled.ts гасит переменную обратно уже после applyTestEnv()

@@ -53,6 +53,9 @@ export const LOG_EVENT = {
   DELIVERY_ATTEMPT_SUCCEEDED: 'delivery.attempt.succeeded',
   DELIVERY_COMPLETED: 'delivery.completed',
   DELIVERY_OUT_OF_STOCK: 'delivery.out_of_stock',
+  INVENTORY_RECOUNTED: 'inventory.recounted',
+  JOB_OWNERSHIP_LOST: 'job.ownership_lost',
+  SUPPLIER_RESTOCK_FAILED: 'supplier.restock_failed',
   JOB_CLAIMED: 'job.claimed',
   JOB_SUCCEEDED: 'job.succeeded',
   LEDGER_TXN_POSTED: 'ledger.txn_posted',
@@ -105,6 +108,15 @@ export const LOG_EVENT_LEVEL: Readonly<Record<LogEventName, LogLevel>> = {
   [LOG_EVENT.DELIVERY_ATTEMPT_SUCCEEDED]: 'info',
   [LOG_EVENT.DELIVERY_COMPLETED]: 'info',
   [LOG_EVENT.DELIVERY_OUT_OF_STOCK]: 'info',
+  // счётчик разошёлся с фактом: reserveKey проиграл гонку SKIP LOCKED, ключи живы, но заказ
+  // всё равно out_of_stock — это не норма, поэтому warn, а не info
+  [LOG_EVENT.INVENTORY_RECOUNTED]: 'warn',
+  // джобу отобрал реклейм stale-локов: сама доставка выживает на блокировке строки заказа,
+  // но учёт попыток и dead-letter уже недостоверны, поэтому это warn, а не info
+  [LOG_EVENT.JOB_OWNERSHIP_LOST]: 'warn',
+  // счётчик остатка уже увеличен, а поставщик пополнение не принял: расхождение с реальным
+  // запасом, из которого вырастает бесполезный ретрай доставки — это error, не debug
+  [LOG_EVENT.SUPPLIER_RESTOCK_FAILED]: 'error',
   [LOG_EVENT.JOB_CLAIMED]: 'info',
   [LOG_EVENT.JOB_SUCCEEDED]: 'info',
   [LOG_EVENT.LEDGER_TXN_POSTED]: 'info',

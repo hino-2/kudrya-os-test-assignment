@@ -53,11 +53,15 @@ export interface IJobFailureInput {
   maxAttempts: number;
   error: unknown;
   backoff: IBackoffOptions;
+  // locked_by из claim'а этой джобы: перевод в pending/dead разрешён только её владельцу
+  lockedBy: string | null;
 }
 
 export interface IJobFailureResult {
   state: JobState;
   runAt: Date | null;
+  // false означает, что джобу уже отобрал JOB_REQUEUE_STALE_SQL и её исполняет другой воркер
+  applied: boolean;
 }
 
 export interface IJobHandler {

@@ -35,6 +35,7 @@ import {
   buildConflictReason,
   buildIgnoredReason,
   buildStaleReason,
+  parseOccurredAt,
   resolveIgnoredState,
   toOrderEvent,
 } from './payments.util';
@@ -68,7 +69,7 @@ export class PaymentWebhookService {
       status: dto.status,
       amountMinor: toMinor(dto.amount, 'amount'),
       currency: dto.currency,
-      occurredAt: new Date(dto.created_at),
+      occurredAt: parseOccurredAt(dto.created_at),
       rawPayload,
       traceId: this.correlationStore.traceId(),
     };

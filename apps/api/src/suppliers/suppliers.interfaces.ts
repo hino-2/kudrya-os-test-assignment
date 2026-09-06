@@ -21,6 +21,15 @@ export interface ISupplierRestockRequestBody {
   count: number;
 }
 
+// исход пополнения по одному поставщику: счётчик остатка уже увеличен в БД, поэтому вызывающий
+// должен знать, приняли ли пополнение на самом деле
+export interface ISupplierRestockOutcome {
+  supplierCode: SupplierCode;
+  ok: boolean;
+  httpStatus: number | null;
+  errorReason: string | null;
+}
+
 export interface ISupplierIssueInput {
   supplierCode: SupplierCode;
   requestId: string;

@@ -9,6 +9,7 @@ import { startApi } from '../helpers/app.harness';
 import type { IApiHarness } from '../helpers/harness.interfaces';
 import { resetDatabase } from '../helpers/pg.helper';
 import { seedCatalog } from '../helpers/seed.helper';
+import { waitForCondition } from '../helpers/wait-for';
 
 interface IHttpResult<T> {
   status: number;
@@ -77,6 +78,48 @@ const DELETE_STOCK_KEYS_FOR_SKU_SQL = `
 `;
 
 const SELECT_EXT_ID_SQL = 'SELECT ext_id FROM orders WHERE id = $1';
+
+const KEEP_SINGLE_STOCK_KEY_SQL = `
+  DELETE FROM stock_keys
+  WHERE product_id = (SELECT id FROM products WHERE sku = $1)
+    AND id <> (
+      SELECT min(id) FROM stock_keys
+      WHERE product_id = (SELECT id FROM products WHERE sku = $1) AND status = 'available'
+    )
+`;
+
+const SET_AVAILABLE_COUNT_SQL = `
+  UPDATE sku_stock SET available_count = $2
+  WHERE product_id = (SELECT id FROM products WHERE sku = $1)
+`;
+
+const LOCK_AVAILABLE_KEYS_SQL = `
+  SELECT id FROM stock_keys
+  WHERE product_id = (SELECT id FROM products WHERE sku = $1) AND status = 'available'
+  FOR UPDATE
+`;
+
+const LOCK_SKU_STOCK_ROW_SQL = `
+  SELECT available_count FROM sku_stock
+  WHERE product_id = (SELECT id FROM products WHERE sku = $1)
+  FOR UPDATE
+`;
+
+const INSERT_AVAILABLE_KEYS_SQL = `
+  INSERT INTO stock_keys (product_id, code, status, batch)
+  SELECT (SELECT id FROM products WHERE sku = $1), 'restocked-' || g, 'available', 'test'
+  FROM generate_series(1, $2) AS g
+`;
+
+// ждём, пока пересчёт реально упрётся в блокировку строки остатка: без этого тест мог бы
+// проверить не тот порядок событий
+// ждём ожидания блокировки через pg_stat_activity, а не pg_locks: pg_locks кластерный, и любой
+// ждущий бэкенд из чужой базы дал бы ложное срабатывание — тест тогда зеленел бы, не воспроизведя
+// само чередование. wait_event_type = 'Lock' — это ровно ожидание блокировки.
+const COUNT_LOCK_WAITERS_SQL = `
+  SELECT count(*)::int AS count FROM pg_stat_activity
+  WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'
+`;
 
 let harness: IApiHarness;
 
@@ -292,6 +335,102 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     const stock = await fetchSkuStock(DRAIN_SKU);
 
     expect(stock.available_count).toBe(0);
+  });
+
+  // H4: reserveKey отдаёт null и когда ключей нет, и когда все свободные заблокированы
+  // конкурентной транзакцией (FOR UPDATE SKIP LOCKED). Раньше оба случая обнуляли счётчик,
+  // из-за чего живой ключ навсегда исчезал с витрины (products.in_stock = false), а счётчики
+  // оставались занижены. Теперь счётчик пересчитывается по факту.
+  it('keeps the counters truthful when reserveKey only lost a SKIP LOCKED race', async () => {
+    await harness.dataSource.query(KEEP_SINGLE_STOCK_KEY_SQL, [DRAIN_SKU]);
+    await harness.dataSource.query(SET_AVAILABLE_COUNT_SQL, [DRAIN_SKU, 1]);
+
+    const order = await createPaidOrder(DRAIN_SKU, DRAIN_SKU_AMOUNT_MAJOR, 'evt_pool_skip_locked');
+    const holder = harness.dataSource.createQueryRunner();
+
+    await holder.connect();
+    await holder.startTransaction();
+
+    try {
+      // держим единственный свободный ключ: SKIP LOCKED у доставки его пропустит,
+      // но статус ключа остаётся 'available', то есть остаток реально есть
+      const locked = await holder.query(LOCK_AVAILABLE_KEYS_SQL, [DRAIN_SKU]);
+
+      expect(locked).toHaveLength(1);
+
+      const deliveryService = harness.get(DeliveryService);
+      const result = await deliveryService.deliver({ orderId: order.id, generation: order.delivery_generation });
+
+      expect(result).toEqual({ outcome: 'out_of_stock', code: null });
+
+      const stock = await fetchSkuStock(DRAIN_SKU);
+
+      // ключ жив, поэтому счётчик обязан остаться 1, а товар — видимым в каталоге
+      expect(stock.available_count).toBe(1);
+      expect(await fetchProductInStock(DRAIN_SKU)).toBe(true);
+      expect(await countIssuedDeliveries(order.id)).toBe(0);
+    } finally {
+      await holder.rollbackTransaction();
+      await holder.release();
+    }
+  });
+
+  // H-1: пересчёт обязан брать блокировку строки остатка отдельным оператором. Если он этого
+  // не делает, снапшот его подзапроса не продвигается через ожидание блокировки (EvalPlanQual
+  // переиспользует es_snapshot оператора), и пересчёт затирает уже закоммиченный admin-restock:
+  // счётчик уезжает в 0 при живых ключах, товар исчезает с витрины, а проход 3 sweeper'а его
+  // не поднимет, потому что требует available_count > 0.
+  it('does not erase a restock that commits while the recount waits for the stock row lock', async () => {
+    await harness.dataSource.query(DELETE_STOCK_KEYS_FOR_SKU_SQL, [DRAIN_SKU]);
+    await harness.dataSource.query(SET_AVAILABLE_COUNT_SQL, [DRAIN_SKU, 0]);
+
+    const order = await createPaidOrder(DRAIN_SKU, DRAIN_SKU_AMOUNT_MAJOR, 'evt_pool_restock_race');
+    const holder = harness.dataSource.createQueryRunner();
+
+    await holder.connect();
+    await holder.startTransaction();
+
+    try {
+      await holder.query(LOCK_SKU_STOCK_ROW_SQL, [DRAIN_SKU]);
+
+      const deliveryService = harness.get(DeliveryService);
+      // не ждём: доставка не найдёт ключей, пойдёт в пересчёт и упрётся в блокировку выше
+      // .catch гасит шум: если ожидание ниже отвалится по таймауту, эта промис-цепочка
+      // упадёт по lock timeout уже после finally и заслонила бы настоящую причину падения
+      const deliveryPromise = deliveryService
+        .deliver({ orderId: order.id, generation: order.delivery_generation })
+        .catch((error: unknown) => error);
+
+      await waitForCondition(
+        async () => {
+          const rows = await harness.dataSource.query<ICountRow[]>(COUNT_LOCK_WAITERS_SQL);
+
+          return (rows[0]?.count ?? 0) > 0;
+        },
+        { message: 'пересчёт так и не упёрся в блокировку строки остатка' },
+      );
+
+      // admin-restock коммитится, пока пересчёт стоит в очереди за блокировкой
+      await holder.query(INSERT_AVAILABLE_KEYS_SQL, [DRAIN_SKU, 3]);
+      await holder.query(SET_AVAILABLE_COUNT_SQL, [DRAIN_SKU, 3]);
+      await holder.commitTransaction();
+
+      const result = await deliveryPromise;
+
+      expect(result).toMatchObject({ outcome: 'out_of_stock' });
+
+      const stock = await fetchSkuStock(DRAIN_SKU);
+
+      // пополнение обязано выжить: 3 живых ключа — значит 3 в счётчике, а не 0
+      expect(stock.available_count).toBe(3);
+      expect(await fetchProductInStock(DRAIN_SKU)).toBe(true);
+    } finally {
+      if (holder.isTransactionActive) {
+        await holder.rollbackTransaction();
+      }
+
+      await holder.release();
+    }
   });
 
   it('replays already_delivered with the same code and does not double-count on a second call', async () => {

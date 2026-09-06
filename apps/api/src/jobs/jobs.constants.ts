@@ -67,24 +67,28 @@ export const JOB_CLAIM_SQL = `
             locked_at, locked_by, last_error, trace_id, created_at, updated_at, finished_at
 `;
 
+// locked_by в предикате обязателен: без него воркер, у которого JOB_REQUEUE_STALE_SQL уже отобрал
+// джобу, доводит её до complete/fail поверх живого исполнителя. Сравнение идёт с locked_by из самой
+// строки (её вернул JOB_CLAIM_SQL), а не с config.jobs.workerId — это ровно то значение, которое
+// записал данный claim. WORKER_ID непустой по построению (env.validation падает на hostname:pid).
 export const JOB_COMPLETE_SQL = `
   UPDATE jobs
   SET state = 'done', finished_at = now(), updated_at = now(), locked_at = NULL, locked_by = NULL, last_error = NULL
-  WHERE id = $1 AND state = 'running'
+  WHERE id = $1 AND state = 'running' AND locked_by = $2
   RETURNING id
 `;
 
 export const JOB_FAIL_RETRY_SQL = `
   UPDATE jobs
   SET state = 'pending', run_at = $3, last_error = $2, locked_at = NULL, locked_by = NULL, updated_at = now()
-  WHERE id = $1 AND state = 'running'
+  WHERE id = $1 AND state = 'running' AND locked_by = $4
   RETURNING id
 `;
 
 export const JOB_FAIL_DEAD_SQL = `
   UPDATE jobs
   SET state = 'dead', last_error = $2, finished_at = now(), locked_at = NULL, locked_by = NULL, updated_at = now()
-  WHERE id = $1 AND state = 'running'
+  WHERE id = $1 AND state = 'running' AND locked_by = $3
   RETURNING id
 `;
 

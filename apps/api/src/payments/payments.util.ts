@@ -1,3 +1,5 @@
+import { DomainError } from '../common/errors/domain.error';
+import { ERROR_CODE } from '../common/errors/errors.constants';
 import type { CurrencyCode, MinorAmount } from '../common/money/money.type';
 import type { OrderEvent, OrderStatus } from '../orders/orders.type';
 import { ORDER_EVENT } from '../orders/orders.constants';
@@ -7,6 +9,7 @@ import {
   IGNORED_EVENT_REASON_TEMPLATE,
   PAYMENT_EVENT_STATE,
   STALE_EVENT_REASON_TEMPLATE,
+  WEBHOOK_INVALID_CREATED_AT_MESSAGE,
 } from './payments.constants';
 import type { PaymentEventState, PaymentStatus, RawWebhookPayload } from './payments.type';
 
@@ -14,6 +17,22 @@ function formatTemplate(template: string, ...values: readonly unknown[]): string
   let index = 0;
 
   return template.replace(/%s/g, () => String(values[index++]));
+}
+
+// DTO уже требует strict-ISO8601 со смещением, но валидатор и Date расходятся на краевых
+// значениях, а неразобранная дата уехала бы в pg как "0NaN-NaN-NaN…", подняла бы 22007 и
+// вернулась клиенту как 500 — платёжная система ретраила бы тот же event_id вечно.
+// Поэтому явная проверка: битый вход обязан быть 400, а не 500.
+export function parseOccurredAt(createdAt: string): Date {
+  const timestamp = Date.parse(createdAt);
+
+  if (Number.isNaN(timestamp)) {
+    throw new DomainError(ERROR_CODE.VALIDATION_FAILED, WEBHOOK_INVALID_CREATED_AT_MESSAGE, {
+      created_at: createdAt,
+    });
+  }
+
+  return new Date(timestamp);
 }
 
 export function toOrderEvent(status: PaymentStatus): OrderEvent {

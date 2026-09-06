@@ -49,7 +49,17 @@ export class AdminController {
   ): Promise<RestockResponseDto> {
     const result = await this.service.restock({ sku: params.sku, codes: dto.codes, count: dto.count });
 
-    return { added: result.added, available_count: result.availableCount };
+    return {
+      added: result.added,
+      available_count: result.availableCount,
+      supplier_restock:
+        result.supplierRestock?.map((outcome) => ({
+          supplier_code: outcome.supplierCode,
+          ok: outcome.ok,
+          http_status: outcome.httpStatus,
+          error_reason: outcome.errorReason,
+        })) ?? null,
+    };
   }
 
   @Post(ADMIN_REDELIVER_ROUTE)

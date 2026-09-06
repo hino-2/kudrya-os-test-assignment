@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { ERROR_CODE } from '../../src/common/errors/errors.constants';
 import type { IErrorEnvelope } from '../../src/common/errors/errors.interfaces';
 import { PAYMENT_FAILED_REASON } from '../../src/payments/payments.constants';
 import type { PaymentWebhookResponseDto } from '../../src/payments/dto/payment-webhook.response.dto';
@@ -37,6 +38,8 @@ const COUNT_ORDERS_SQL = 'SELECT count(*)::int AS count FROM orders';
 const COUNT_JOBS_SQL = 'SELECT count(*)::int AS count FROM jobs';
 
 const COUNT_LEDGER_TXNS_SQL = 'SELECT count(*)::int AS count FROM ledger_txns';
+
+const BAD_REQUEST_STATUS = 400;
 
 const COUNT_LEDGER_ENTRIES_SQL = 'SELECT count(*)::int AS count FROM ledger_entries';
 
@@ -124,6 +127,26 @@ beforeEach(async () => {
 });
 
 describe('POST /webhooks/payment', () => {
+  // H6: дефолтный @IsISO8601() принимает всё это, а new Date() либо не парсит, либо тихо
+  // искажает. Неразобранная дата уезжала в pg как "0NaN-NaN-NaN…", поднимала 22007 и
+  // возвращалась клиенту как 500 — платёжка ретраила бы тот же event_id вечно.
+  it.each([
+    ['basic ISO 8601 format that Date cannot parse', '20250101T120000Z'],
+    ['a calendar-impossible date that Date silently shifts', '2025-02-30T12:00:00Z'],
+    ['a local time without an offset', '2025-01-01T12:00:00'],
+  ])('rejects %s with 400 instead of 500', async (_label, createdAt) => {
+    const extId = await createOrder();
+    const payload = webhookPayload({ event_id: `evt_bad_date_${createdAt}`, order_id: extId, created_at: createdAt });
+
+    const response = await post<IErrorEnvelope>('/webhooks/payment', payload);
+
+    expect(response.status).toBe(BAD_REQUEST_STATUS);
+    expect(response.body.error.code).toBe(ERROR_CODE.VALIDATION_FAILED);
+
+    // ничего не должно остаться в БД: событие не принято
+    expect(await scalarOf(COUNT_PAYMENT_EVENTS_SQL)).toBe(0);
+  });
+
   it('is idempotent when the same event_id repeats', async () => {
     const extId = await createOrder();
     const payload = webhookPayload({ event_id: 'evt_dup_1', order_id: extId });

@@ -9,7 +9,8 @@ import { JsonLogger } from '../../src/common/logging/json-logger';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobQueueService } from '../../src/jobs/job-queue.service';
 import { JobWorkerService } from '../../src/jobs/job-worker.service';
-import { WORKER_SHUTDOWN_DRAIN_TIMEOUT_MS } from '../../src/jobs/jobs.constants';
+import { JOB_KIND, JOB_STATE, WORKER_SHUTDOWN_DRAIN_TIMEOUT_MS } from '../../src/jobs/jobs.constants';
+import { LOG_EVENT } from '../../src/common/logging/logging.constants';
 import type { IJobRow } from '../../src/jobs/jobs.interfaces';
 
 interface IDeferredClaim {
@@ -109,5 +110,82 @@ describe('JobWorkerService onModuleDestroy draining an in-flight tick', () => {
 
     deferred.resolve([]);
     await tickPromise;
+  });
+});
+
+// H8: без ветки !applied воркер логировал бы job.succeeded для чужой строки и засорял
+// dead-letter сигнал падениями по джобе, которую уже исполняет другой воркер. Ветки живут
+// в самом воркере, поэтому SQL-предикат их не покрывает — нужен отдельный тест.
+describe('JobWorkerService settle when the job was claimed away', () => {
+  function buildJob(): IJobRow {
+    return {
+      id: 1,
+      kind: JOB_KIND.DELIVER_ORDER,
+      dedupe_key: 'ownership:unit',
+      payload: { orderId: 1, ext_id: 'ord_1', generation: 0 },
+      state: JOB_STATE.RUNNING,
+      attempts: 1,
+      max_attempts: 5,
+      run_at: new Date(),
+      locked_at: new Date(),
+      locked_by: 'other-worker',
+      last_error: null,
+      trace_id: null,
+      created_at: new Date(),
+      updated_at: new Date(),
+      finished_at: null,
+    } as unknown as IJobRow;
+  }
+
+  function buildWorker(queueOverrides: Partial<JobQueueService>, events: string[]): JobWorkerService {
+    const job = buildJob();
+    const queue = {
+      requeueStale: () => Promise.resolve(0),
+      claim: () => Promise.resolve([job]),
+      ...queueOverrides,
+    } as unknown as JobQueueService;
+    const unitOfWork = {
+      withTransaction: (cb: (qr: unknown) => unknown) => Promise.resolve(cb({})),
+    } as unknown as UnitOfWorkService;
+    const registry = {
+      resolve: () => ({ kind: JOB_KIND.DELIVER_ORDER, handle: () => Promise.resolve() }),
+    } as unknown as JobHandlerRegistry;
+    const schedulerRegistry = { deleteInterval: vi.fn() } as unknown as SchedulerRegistry;
+    const logger = new AppLoggerService(
+      new JsonLogger({
+        level: 'debug',
+        format: 'json',
+        includeStack: false,
+        sink: (line: string) => {
+          events.push(JSON.parse(line).event as string);
+        },
+      }),
+      new CorrelationStore(),
+      'JobWorkerService',
+    );
+
+    return new JobWorkerService(buildConfig(), unitOfWork, queue, registry, logger, schedulerRegistry);
+  }
+
+  it('logs job.ownership_lost instead of job.succeeded when complete matches no row', async () => {
+    const events: string[] = [];
+    const worker = buildWorker({ complete: () => Promise.resolve(false) }, events);
+
+    const result = await worker.runOnce();
+
+    expect(events).toContain(LOG_EVENT.JOB_OWNERSHIP_LOST);
+    expect(events).not.toContain(LOG_EVENT.JOB_SUCCEEDED);
+    // обработчик отработал успешно — потеряна только строка учёта
+    expect(result.succeeded).toBe(1);
+  });
+
+  it('logs job.succeeded when complete matches the owned row', async () => {
+    const events: string[] = [];
+    const worker = buildWorker({ complete: () => Promise.resolve(true) }, events);
+
+    await worker.runOnce();
+
+    expect(events).toContain(LOG_EVENT.JOB_SUCCEEDED);
+    expect(events).not.toContain(LOG_EVENT.JOB_OWNERSHIP_LOST);
   });
 });

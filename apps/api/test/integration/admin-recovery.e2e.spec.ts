@@ -203,7 +203,8 @@ describe('POST /admin/products/:sku/restock', () => {
     });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ added: 3, available_count: 3 });
+    // pool-режим: поставщик в пополнении не участвует
+    expect(body).toEqual({ added: 3, available_count: 3, supplier_restock: null });
     expect(await availableCountOf(productId)).toBe(3);
   });
 
@@ -215,7 +216,7 @@ describe('POST /admin/products/:sku/restock', () => {
     const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, { count: 5 });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ added: 5, available_count: 5 });
+    expect(body).toEqual({ added: 5, available_count: 5, supplier_restock: null });
   });
 
   it('bumps available_count for a supplier product given a count', async () => {
@@ -225,8 +226,20 @@ describe('POST /admin/products/:sku/restock', () => {
     const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, { count: 10 });
 
     expect(status).toBe(200);
-    expect(body).toEqual({ added: 10, available_count: 12 });
+    expect(body.added).toBe(10);
+    expect(body.available_count).toBe(12);
     expect(await availableCountOf(productId)).toBe(12);
+
+    // H10: счётчик увеличивается до сетевого вызова, поэтому провал пополнения у поставщика
+    // обязан быть виден в ответе, а не только в логах. В этом vitest-проекте заглушки не
+    // поднимаются (порты в DEFAULT_TEST_ENV заведомо мёртвые), значит оба исхода — отказ.
+    expect(body.supplier_restock).toHaveLength(2);
+    expect(body.supplier_restock?.map((outcome) => outcome.supplier_code).sort()).toEqual(['A', 'B']);
+
+    for (const outcome of body.supplier_restock ?? []) {
+      expect(outcome.ok).toBe(false);
+      expect(outcome.error_reason).not.toBeNull();
+    }
   });
 
   it('rejects explicit codes for a supplier product with 400', async () => {

@@ -7,6 +7,7 @@ import type { PaymentStatus } from '../payments.type';
 import {
   EVENT_ID_MAX_LENGTH,
   EVENT_ID_MIN_LENGTH,
+  ISO_8601_WITH_OFFSET_REGEX,
   WEBHOOK_AMOUNT_MIN,
   WEBHOOK_CURRENCY_VALUES,
   WEBHOOK_STATUS_VALUES,
@@ -33,6 +34,11 @@ export class PaymentWebhookRequestDto {
   @IsIn(WEBHOOK_CURRENCY_VALUES)
   currency!: CurrencyCode;
 
-  @IsISO8601()
+  // strict + strictSeparator + явное смещение: дефолтный IsISO8601 принимает basic-формат
+  // ("20250101T120000Z"), который new Date() не парсит, календарно невозможные даты
+  // ("2025-02-30" тихо уезжает в 2025-03-02) и время без смещения, которое трактуется
+  // в таймзоне процесса и ломает порядок событий по-разному в разных окружениях
+  @IsISO8601({ strict: true, strictSeparator: true })
+  @Matches(ISO_8601_WITH_OFFSET_REGEX)
   created_at!: string;
 }

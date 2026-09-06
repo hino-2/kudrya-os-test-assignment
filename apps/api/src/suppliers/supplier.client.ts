@@ -20,6 +20,7 @@ import type {
   ISupplierIssueInput,
   ISupplierIssueRequestBody,
   ISupplierIssueResult,
+  ISupplierRestockOutcome,
   ISupplierRestockRequestBody,
 } from './suppliers.interfaces';
 import type { IssueOutcomeShape, SupplierCode } from './suppliers.type';
@@ -124,13 +125,13 @@ export class SupplierClient {
     }
   }
 
-  async restock(count: number): Promise<void> {
-    await Promise.all(
-      Object.values(SUPPLIER_CODE).map((code) => this.restockOne(code, count)),
-    );
+  // исход по каждому поставщику возвращается наружу: счётчик sku_stock уже увеличен, и если
+  // ни один поставщик не принял пополнение, админ обязан это увидеть, а не получить голое 200
+  async restock(count: number): Promise<ISupplierRestockOutcome[]> {
+    return Promise.all(Object.values(SUPPLIER_CODE).map((code) => this.restockOne(code, count)));
   }
 
-  private async restockOne(code: SupplierCode, count: number): Promise<void> {
+  private async restockOne(code: SupplierCode, count: number): Promise<ISupplierRestockOutcome> {
     const url = `${this.baseUrlFor(code)}${SUPPLIER_CONTROL_RESTOCK_PATH}`;
     const requestBody: ISupplierRestockRequestBody = { count };
 
@@ -149,13 +150,34 @@ export class SupplierClient {
         http_status: response.status,
         outcome: response.ok ? SUPPLIER_OUTCOME.ISSUED : SUPPLIER_OUTCOME.UNKNOWN,
       });
+
+      // supplier.response замаплен на debug, поэтому при LOG_LEVEL=info провал пополнения
+      // был бы не виден вообще — отдельное событие уровня error
+      if (!response.ok) {
+        this.logger.event(LOG_EVENT.SUPPLIER_RESTOCK_FAILED, {
+          supplier_code: code,
+          http_status: response.status,
+          count,
+        });
+      }
+
+      return {
+        supplierCode: code,
+        ok: response.ok,
+        httpStatus: response.status,
+        errorReason: null,
+      };
     } catch (error) {
-      this.logger.event(LOG_EVENT.SUPPLIER_RESPONSE, {
+      const errorReason = error instanceof Error ? error.message : String(error);
+
+      this.logger.event(LOG_EVENT.SUPPLIER_RESTOCK_FAILED, {
         supplier_code: code,
         http_status: null,
-        outcome: SUPPLIER_OUTCOME.UNKNOWN,
-        error: error instanceof Error ? error.message : String(error),
+        count,
+        error: errorReason,
       });
+
+      return { supplierCode: code, ok: false, httpStatus: null, errorReason };
     }
   }
 

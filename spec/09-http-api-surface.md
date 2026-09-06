@@ -108,7 +108,7 @@ An order is created regardless of stock. Stock is checked at delivery time, beca
 | `status` | required, `@IsIn(['paid','failed'])` |
 | `amount` | required, `@IsInt() @Min(0)` — **major units** (§3.1) |
 | `currency` | required, `@IsIn(['RUB'])` |
-| `created_at` | required, `@IsISO8601()` |
+| `created_at` | required, `@IsISO8601({ strict: true, strictSeparator: true })` + an explicit-offset regex. Non-strict `@IsISO8601()` accepts basic format (`20250101T120000Z`, which `Date` cannot parse), calendar-impossible dates (`2025-02-30` silently shifts) and offset-less local time (interpreted in the process timezone), so a bad payload used to surface as a 500 and make the provider retry the same `event_id` forever. Now 400. |
 
 `200` always for every business outcome:
 ```json
@@ -136,7 +136,7 @@ All under `/admin`, all require `x-admin-token: $ADMIN_TOKEN`, all return `403 A
 
 | Endpoint | Body | Behaviour | Codes |
 |---|---|---|---|
-| `POST /admin/products/:sku/restock` | `{ "codes": ["A-B-C"] }` **or** `{ "count": 25 }` (`@IsInt() @Min(1) @Max(10000)`) | pool: insert `stock_keys`, bump `sku_stock`, set `in_stock`. supplier: set `available_count`, call the stub's `/_control/restock`. One transaction. | `200 {added, available_count}`; `404`; `400` |
+| `POST /admin/products/:sku/restock` | `{ "codes": ["A-B-C"] }` **or** `{ "count": 25 }` (`@IsInt() @Min(1) @Max(10000)`) | pool: insert `stock_keys`, bump `sku_stock`, set `in_stock`. supplier: set `available_count`, call the stub's `/_control/restock`. One transaction. | `200 {added, available_count, supplier_restock}` (`supplier_restock` is `null` for pool, and a per-supplier outcome array for supplier mode — the counter is bumped before the network call, so a failed restock must be visible in the response); `404`; `400` |
 | `POST /admin/orders/:orderId/redeliver` | `{ "reason": "..." }` optional | `ADMIN_REDELIVER`: only from `out_of_stock`/`delivery_failed`; `delivery_generation += 1`; enqueue. **Refuses if `issued_deliveries` already has a row.** | `202 {enqueued:true, generation}`; `409 ORDER_ALREADY_DELIVERED`; `409 ORDER_NOT_RECOVERABLE` |
 | `POST /admin/orders/:orderId/force-paid` | `{ "event_id": "evt_x" }` — the conflicting event to resolve | `ADMIN_FORCE_PAID` from `payment_failed`; posts `payment_captured`; enqueues delivery; marks the event resolved. WARN log. | `202`; `409 ILLEGAL_TRANSITION` |
 | `POST /admin/orders/:orderId/refund` | `{ "reason": "..." }` | Posts `payment_refunded` for an order stuck in `out_of_stock`. Order status unchanged (audit-only). | `200`; `409` |

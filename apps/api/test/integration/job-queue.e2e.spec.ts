@@ -21,6 +21,14 @@ const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1';
 
 const SET_MAX_ATTEMPTS_SQL = 'UPDATE jobs SET max_attempts = $2 WHERE dedupe_key = $1';
 
+const REASSIGN_JOB_OWNER_SQL = `
+  UPDATE jobs SET locked_by = $2, locked_at = now() WHERE dedupe_key = $1
+`;
+
+const STALE_WORKER_ID = 'stale-worker';
+
+const LIVE_WORKER_ID = 'live-worker';
+
 const MARK_STALE_RUNNING_SQL = `
   UPDATE jobs
   SET state = 'running', locked_at = now() - ($2 || ' milliseconds')::interval, locked_by = 'dead-worker'
@@ -61,6 +69,105 @@ beforeEach(async () => {
 });
 
 describe('job queue + worker', () => {
+  // H8: complete/fail обязаны проверять locked_by. Без предиката воркер, у которого
+  // JOB_REQUEUE_STALE_SQL уже отобрал джобу, доводит её до pending/dead поверх живого
+  // исполнителя, и инварианта «одна живая джоба на заказ» (jobs_live_uq) молча теряется.
+  it('refuses to complete or fail a job claimed away by another worker', async () => {
+    const unitOfWork = harness.get(UnitOfWorkService);
+    const queue = harness.get(JobQueueService);
+    const dedupeKey = 'ownership:stolen';
+
+    await enqueue({ dedupeKey });
+
+    const claimed = await unitOfWork.withTransaction((qr) =>
+      queue.claim(qr, { workerId: STALE_WORKER_ID, limit: 1 }),
+    );
+    const job = claimed[0];
+
+    expect(job).toBeDefined();
+    expect(job.locked_by).toBe(STALE_WORKER_ID);
+
+    // джобу отобрали и перезабрали: state снова running, но владелец другой
+    await harness.dataSource.query(REASSIGN_JOB_OWNER_SQL, [dedupeKey, LIVE_WORKER_ID]);
+
+    const completed = await unitOfWork.withTransaction((qr) => queue.complete(qr, job.id, STALE_WORKER_ID));
+
+    expect(completed).toBe(false);
+
+    const failed = await unitOfWork.withTransaction((qr) =>
+      queue.fail(qr, {
+        id: job.id,
+        attempts: job.attempts,
+        maxAttempts: job.max_attempts,
+        error: new Error('stale worker'),
+        backoff: { baseMs: 500, maxMs: 30000 },
+        lockedBy: STALE_WORKER_ID,
+      }),
+    );
+
+    expect(failed.applied).toBe(false);
+
+    const afterRows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const after = afterRows[0];
+
+    expect(after.state).toBe(JOB_STATE.RUNNING);
+    expect(after.locked_by).toBe(LIVE_WORKER_ID);
+    expect(after.last_error).toBeNull();
+
+    // положительный контроль: настоящий владелец джобу закрывает
+    const completedByOwner = await unitOfWork.withTransaction((qr) =>
+      queue.complete(qr, job.id, LIVE_WORKER_ID),
+    );
+
+    expect(completedByOwner).toBe(true);
+  });
+
+  // dead-ветка идёт по отдельному оператору с другим индексом параметра ($3 против $4 у retry),
+  // поэтому её нужно исполнить отдельно: ошибка в индексе всплыла бы только в проде
+  it('dead-letters a job for its owner and refuses to for a stale worker', async () => {
+    const unitOfWork = harness.get(UnitOfWorkService);
+    const queue = harness.get(JobQueueService);
+    const dedupeKey = 'ownership:dead';
+
+    await enqueue({ dedupeKey });
+    await harness.dataSource.query(SET_MAX_ATTEMPTS_SQL, [dedupeKey, 1]);
+
+    const claimed = await unitOfWork.withTransaction((qr) =>
+      queue.claim(qr, { workerId: LIVE_WORKER_ID, limit: 1 }),
+    );
+    const job = claimed[0];
+
+    expect(job).toBeDefined();
+    expect(job.attempts).toBe(1);
+
+    const failure = {
+      id: job.id,
+      attempts: job.attempts,
+      maxAttempts: job.max_attempts,
+      error: new Error('dead branch'),
+      backoff: { baseMs: 500, maxMs: 30000 },
+    };
+
+    const stolen = await unitOfWork.withTransaction((qr) =>
+      queue.fail(qr, { ...failure, lockedBy: STALE_WORKER_ID }),
+    );
+
+    expect(stolen.state).toBe(JOB_STATE.DEAD);
+    expect(stolen.applied).toBe(false);
+
+    const owned = await unitOfWork.withTransaction((qr) =>
+      queue.fail(qr, { ...failure, lockedBy: LIVE_WORKER_ID }),
+    );
+
+    expect(owned.state).toBe(JOB_STATE.DEAD);
+    expect(owned.applied).toBe(true);
+
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+
+    expect(rows[0].state).toBe(JOB_STATE.DEAD);
+    expect(rows[0].last_error).toContain('dead branch');
+  });
+
   it('deduplicates concurrent enqueue calls sharing the same dedupe key', async () => {
     const dedupeKey = 'dedupe:concurrent';
     const results = await Promise.all(

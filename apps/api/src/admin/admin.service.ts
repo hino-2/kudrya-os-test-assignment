@@ -82,13 +82,17 @@ export class AdminService {
     });
 
     // вызов поставщика — сайд-эффект, идёт после коммита, чтобы не держать TX открытой на время сети
-    if (supplierRestockCount !== null) {
-      await this.supplierClient.restock(supplierRestockCount);
-    }
+    const supplierRestock =
+      supplierRestockCount === null ? null : await this.supplierClient.restock(supplierRestockCount);
 
-    this.logger.event(LOG_EVENT.ADMIN_RESTOCK, { sku: input.sku, added: result.added, available_count: result.availableCount });
+    this.logger.event(LOG_EVENT.ADMIN_RESTOCK, {
+      sku: input.sku,
+      added: result.added,
+      available_count: result.availableCount,
+      supplier_restock_failed: supplierRestock?.filter((outcome) => !outcome.ok).length ?? 0,
+    });
 
-    return { added: result.added, availableCount: result.availableCount };
+    return { added: result.added, availableCount: result.availableCount, supplierRestock };
   }
 
   async redeliver(input: IRedeliverInput): Promise<IRedeliverResult> {
