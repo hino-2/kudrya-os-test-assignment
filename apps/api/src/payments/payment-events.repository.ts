@@ -66,10 +66,18 @@ export class PaymentEventsRepository {
     return this.run<IOrphanEventRow>(PAYMENT_FIND_REPLAYABLE_ORPHANS_SQL, [limit], qr);
   }
 
-  async findAbandonableOrphans(qr: QueryRunner, ttlSeconds: number, limit: number): Promise<IPaymentEventIdRow[]> {
+  async findAbandonableOrphans(
+    qr: QueryRunner,
+    ttlSeconds: number,
+    limit: number,
+  ): Promise<IPaymentEventIdRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IPaymentEventIdRow>(PAYMENT_FIND_ABANDONABLE_ORPHANS_SQL, [ttlSeconds, limit], qr);
+    return this.run<IPaymentEventIdRow>(
+      PAYMENT_FIND_ABANDONABLE_ORPHANS_SQL,
+      [ttlSeconds, limit],
+      qr,
+    );
   }
 
   private assertTransaction(qr: QueryRunner): void {

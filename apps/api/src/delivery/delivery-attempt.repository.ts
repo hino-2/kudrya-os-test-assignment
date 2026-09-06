@@ -46,17 +46,31 @@ export class DeliveryAttemptRepository {
   ): Promise<IDeliveryAttemptRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IDeliveryAttemptRow>(FIND_ATTEMPTS_BY_ORDER_SQL, [orderId, deliveryGeneration], qr);
+    return this.run<IDeliveryAttemptRow>(
+      FIND_ATTEMPTS_BY_ORDER_SQL,
+      [orderId, deliveryGeneration],
+      qr,
+    );
   }
 
   // возвращает null при конфликте с открытой попыткой того же заказа (частичный уникальный
   // индекс delivery_attempts_open_uq) — вызывающий код обязан перечитать открытую попытку
-  async insertAttempt(qr: QueryRunner, input: IInsertDeliveryAttemptInput): Promise<IDeliveryAttemptRow | null> {
+  async insertAttempt(
+    qr: QueryRunner,
+    input: IInsertDeliveryAttemptInput,
+  ): Promise<IDeliveryAttemptRow | null> {
     this.assertTransaction(qr);
 
     const rows = await this.run<IDeliveryAttemptRow>(
       INSERT_DELIVERY_ATTEMPT_SQL,
-      [input.orderId, input.supplierCode, input.attemptNo, input.requestId, input.sku, input.deliveryGeneration],
+      [
+        input.orderId,
+        input.supplierCode,
+        input.attemptNo,
+        input.requestId,
+        input.sku,
+        input.deliveryGeneration,
+      ],
       qr,
     );
 
@@ -66,12 +80,19 @@ export class DeliveryAttemptRepository {
   async resumeAttempt(qr: QueryRunner, attemptId: number): Promise<IDeliveryAttemptRow | null> {
     this.assertTransaction(qr);
 
-    const rows = await this.runUpdate<IDeliveryAttemptRow>(RESUME_DELIVERY_ATTEMPT_SQL, [attemptId], qr);
+    const rows = await this.runUpdate<IDeliveryAttemptRow>(
+      RESUME_DELIVERY_ATTEMPT_SQL,
+      [attemptId],
+      qr,
+    );
 
     return rows[0] ?? null;
   }
 
-  async finalizeSucceeded(qr: QueryRunner, input: IFinalizeAttemptSucceededInput): Promise<boolean> {
+  async finalizeSucceeded(
+    qr: QueryRunner,
+    input: IFinalizeAttemptSucceededInput,
+  ): Promise<boolean> {
     this.assertTransaction(qr);
 
     const rows = await this.runUpdate<{ id: number }>(
@@ -97,7 +118,10 @@ export class DeliveryAttemptRepository {
 
   // возвращает актуальное значение resolve_attempts после инкремента — вызывающий код сверяет
   // его с config.supplier.unknownMaxResolveAttempts, чтобы решить abandoned_unknown или нет
-  async promoteToUnknown(qr: QueryRunner, input: IPromoteAttemptToUnknownInput): Promise<number | null> {
+  async promoteToUnknown(
+    qr: QueryRunner,
+    input: IPromoteAttemptToUnknownInput,
+  ): Promise<number | null> {
     this.assertTransaction(qr);
 
     const rows = await this.runUpdate<{ resolve_attempts: number }>(
@@ -111,10 +135,18 @@ export class DeliveryAttemptRepository {
 
   // false означает, что попытку уже увёл кто-то другой (демоция свипером, второй воркер) —
   // вызывающий обязан проверить результат и не продолжать выдачу по чужой строке
-  async markAbandoned(qr: QueryRunner, attemptId: number, resumedAt: Date | null): Promise<boolean> {
+  async markAbandoned(
+    qr: QueryRunner,
+    attemptId: number,
+    resumedAt: Date | null,
+  ): Promise<boolean> {
     this.assertTransaction(qr);
 
-    const rows = await this.runUpdate<{ id: number }>(MARK_ATTEMPT_ABANDONED_SQL, [attemptId, resumedAt], qr);
+    const rows = await this.runUpdate<{ id: number }>(
+      MARK_ATTEMPT_ABANDONED_SQL,
+      [attemptId, resumedAt],
+      qr,
+    );
 
     return rows.length > 0;
   }
@@ -127,7 +159,11 @@ export class DeliveryAttemptRepository {
   ): Promise<IStaleInflightAttemptRow[]> {
     this.assertTransaction(qr);
 
-    return this.runUpdate<IStaleInflightAttemptRow>(DEMOTE_STALE_INFLIGHT_SQL, [timeoutMs, errorReason, limit], qr);
+    return this.runUpdate<IStaleInflightAttemptRow>(
+      DEMOTE_STALE_INFLIGHT_SQL,
+      [timeoutMs, errorReason, limit],
+      qr,
+    );
   }
 
   // claim, а не чистое чтение: инкремент resolve_attempts и сдвиг next_resolve_at идут тем же
@@ -160,7 +196,7 @@ export class DeliveryAttemptRepository {
 
   // Драйвер отдаёт UPDATE как [rows, rowCount], поэтому строки берутся из структурированного результата.
   private async runUpdate<T>(sql: string, params: unknown[], qr: QueryRunner): Promise<T[]> {
-    const result: QueryResult<T> = await qr.query(sql, params, true);
+    const result = (await qr.query(sql, params, true)) as QueryResult<T>;
 
     return result.records;
   }

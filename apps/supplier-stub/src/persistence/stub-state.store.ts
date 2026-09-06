@@ -45,10 +45,19 @@ export class StubStateStore implements OnModuleInit {
         this.index.set(record.requestId, record);
       }
 
-      this.logger.write({ level: 'info', event: STUB_STATE_LOG_EVENT.LOADED, data: { path: this.persistPath, issued: this.index.size } });
+      this.logger.write({
+        level: 'info',
+        event: STUB_STATE_LOG_EVENT.LOADED,
+        data: { path: this.persistPath, issued: this.index.size },
+      });
     } catch (err) {
       // Corrupt or unreadable state file must never crash the stub — start fresh.
-      this.logger.write({ level: 'warn', event: STUB_STATE_LOG_EVENT.LOAD_FAILED, data: { path: this.persistPath }, err });
+      this.logger.write({
+        level: 'warn',
+        event: STUB_STATE_LOG_EVENT.LOAD_FAILED,
+        data: { path: this.persistPath },
+        err,
+      });
     }
   }
 

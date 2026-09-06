@@ -33,7 +33,11 @@ export class DeliveryRepository {
   }
 
   async findFulfillmentMode(qr: QueryRunner, orderId: number): Promise<FulfillmentMode | null> {
-    const rows = await this.run<{ fulfillment_mode: FulfillmentMode }>(FIND_FULFILLMENT_MODE_SQL, [orderId], qr);
+    const rows = await this.run<{ fulfillment_mode: FulfillmentMode }>(
+      FIND_FULFILLMENT_MODE_SQL,
+      [orderId],
+      qr,
+    );
 
     return rows[0]?.fulfillment_mode ?? null;
   }
@@ -44,7 +48,10 @@ export class DeliveryRepository {
     return rows[0] ?? null;
   }
 
-  async insertIssuedDelivery(qr: QueryRunner, input: IInsertIssuedDeliveryInput): Promise<IIssuedDeliveryRow | null> {
+  async insertIssuedDelivery(
+    qr: QueryRunner,
+    input: IInsertIssuedDeliveryInput,
+  ): Promise<IIssuedDeliveryRow | null> {
     this.assertTransaction(qr);
 
     const rows = await this.run<IIssuedDeliveryRow>(
@@ -64,7 +71,14 @@ export class DeliveryRepository {
 
     const rows = await this.run<IIssuedDeliveryRow>(
       INSERT_SUPPLIER_ISSUED_DELIVERY_SQL,
-      [input.orderId, input.productId, input.sku, input.code, input.supplierCode, input.deliveryAttemptId],
+      [
+        input.orderId,
+        input.productId,
+        input.sku,
+        input.code,
+        input.supplierCode,
+        input.deliveryAttemptId,
+      ],
       qr,
     );
 

@@ -44,6 +44,8 @@ import { ReconciliationModule } from './reconciliation/reconciliation.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationMiddleware).forRoutes({ path: '{*splat}', method: RequestMethod.ALL });
+    consumer
+      .apply(CorrelationMiddleware)
+      .forRoutes({ path: '{*splat}', method: RequestMethod.ALL });
   }
 }

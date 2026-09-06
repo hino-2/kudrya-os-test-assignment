@@ -108,7 +108,8 @@ export const VERIFY_PRODUCT_COUNT_MESSAGE = 'Сверка после сида: �
 
 export const VERIFY_KEY_COUNT_MESSAGE = 'Сверка после сида: неверная раскладка ключей по SKU';
 
-export const MISSING_KEY_SLICE_MESSAGE = 'Для товара в режиме pool не задана доля ключей в KEY_DISTRIBUTION';
+export const MISSING_KEY_SLICE_MESSAGE =
+  'Для товара в режиме pool не задана доля ключей в KEY_DISTRIBUTION';
 
 export const SEED_ROLLED_BACK_MESSAGE = 'Сид каталога прерван, транзакция откачена:';
 

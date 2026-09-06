@@ -20,7 +20,10 @@ export function escapeLikePrefix(value: string): string {
   return value.replace(LIKE_ESCAPE_PATTERN, LIKE_ESCAPE_REPLACEMENT);
 }
 
-export function resolveListFilter(query: ListCatalogQueryDto, config: ICatalogConfig): ICatalogFilter {
+export function resolveListFilter(
+  query: ListCatalogQueryDto,
+  config: ICatalogConfig,
+): ICatalogFilter {
   return {
     type: query.type ?? null,
     inStockOnly: parseBooleanFlag(query.in_stock, CATALOG_IN_STOCK_DEFAULT),

@@ -56,7 +56,8 @@ const SELECT_PAYMENT_EVENT_SQL = 'SELECT order_id, state FROM payment_events WHE
 
 const SELECT_ORDER_STATUS_SQL = 'SELECT status, failure_reason FROM orders WHERE ext_id = $1';
 
-const SELECT_ORDER_STAMPS_SQL = 'SELECT paid_at, last_payment_event_at FROM orders WHERE ext_id = $1';
+const SELECT_ORDER_STAMPS_SQL =
+  'SELECT paid_at, last_payment_event_at FROM orders WHERE ext_id = $1';
 
 // запас на расхождение часов процесса и Postgres при сверке серверной метки paid_at
 const CLOCK_SKEW_MS = 60000;
@@ -86,7 +87,9 @@ async function scalarOf(sql: string, params: unknown[] = []): Promise<number> {
 }
 
 async function storedPaymentEvent(eventId: string): Promise<IPaymentEventRow> {
-  const rows = await harness.dataSource.query<IPaymentEventRow[]>(SELECT_PAYMENT_EVENT_SQL, [eventId]);
+  const rows = await harness.dataSource.query<IPaymentEventRow[]>(SELECT_PAYMENT_EVENT_SQL, [
+    eventId,
+  ]);
   const row = rows[0];
 
   if (row === undefined) {
@@ -165,7 +168,11 @@ describe('POST /webhooks/payment', () => {
     ['a local time without an offset', '2025-01-01T12:00:00'],
   ])('rejects %s with 400 instead of 500', async (_label, createdAt) => {
     const extId = await createOrder();
-    const payload = webhookPayload({ event_id: `evt_bad_date_${createdAt}`, order_id: extId, created_at: createdAt });
+    const payload = webhookPayload({
+      event_id: `evt_bad_date_${createdAt}`,
+      order_id: extId,
+      created_at: createdAt,
+    });
 
     const response = await post<IErrorEnvelope>('/webhooks/payment', payload);
 
@@ -289,14 +296,23 @@ describe('POST /webhooks/payment', () => {
 
     const failed = await post<PaymentWebhookResponseDto>(
       '/webhooks/payment',
-      webhookPayload({ event_id: 'evt_retry_failed', order_id: extId, status: 'failed', created_at: failedAt }),
+      webhookPayload({
+        event_id: 'evt_retry_failed',
+        order_id: extId,
+        status: 'failed',
+        created_at: failedAt,
+      }),
     );
 
     expect(failed.body.order_status).toBe('payment_failed');
 
     const paid = await post<PaymentWebhookResponseDto>(
       '/webhooks/payment',
-      webhookPayload({ event_id: 'evt_retry_paid', order_id: extId, created_at: new Date().toISOString() }),
+      webhookPayload({
+        event_id: 'evt_retry_paid',
+        order_id: extId,
+        created_at: new Date().toISOString(),
+      }),
     );
 
     expect(paid.status).toBe(200);
@@ -331,7 +347,8 @@ describe('POST /webhooks/payment', () => {
     });
 
     const applied = records.filter(
-      (record) => record.event === LOG_EVENT.PAYMENT_APPLIED && record.data?.event_id === 'evt_retry_paid',
+      (record) =>
+        record.event === LOG_EVENT.PAYMENT_APPLIED && record.data?.event_id === 'evt_retry_paid',
     );
 
     expect(applied).toHaveLength(1);
@@ -363,7 +380,11 @@ describe('POST /webhooks/payment', () => {
 
   it('rejects a payment whose amount does not match the order', async () => {
     const extId = await createOrder();
-    const payload = webhookPayload({ event_id: 'evt_amount_1', order_id: extId, amount: AMOUNT_MAJOR + 1 });
+    const payload = webhookPayload({
+      event_id: 'evt_amount_1',
+      order_id: extId,
+      amount: AMOUNT_MAJOR + 1,
+    });
 
     const { status, body } = await post<PaymentWebhookResponseDto>('/webhooks/payment', payload);
 
@@ -389,7 +410,11 @@ describe('POST /webhooks/payment', () => {
 
     await post<PaymentWebhookResponseDto>(
       '/webhooks/payment',
-      webhookPayload({ event_id: 'evt_conflict_1', order_id: extId, created_at: firstAt.toISOString() }),
+      webhookPayload({
+        event_id: 'evt_conflict_1',
+        order_id: extId,
+        created_at: firstAt.toISOString(),
+      }),
     );
 
     const { status, body } = await post<PaymentWebhookResponseDto>(
@@ -456,7 +481,10 @@ describe('POST /webhooks/payment', () => {
 
   it('accepts an unknown top-level field via lenient validation', async () => {
     const extId = await createOrder();
-    const payload = { ...webhookPayload({ event_id: 'evt_lenient_1', order_id: extId }), foo: 'bar' };
+    const payload = {
+      ...webhookPayload({ event_id: 'evt_lenient_1', order_id: extId }),
+      foo: 'bar',
+    };
 
     const { status, body } = await post<PaymentWebhookResponseDto>('/webhooks/payment', payload);
 

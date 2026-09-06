@@ -1,10 +1,18 @@
-import { DEFAULT_HTTP_TIMEOUT_MS, HTTP_METHOD, HTTP_REQUEST_FAILED_MESSAGE, HTTP_RESPONSE_NOT_JSON_MESSAGE } from './lib.constants';
+import {
+  DEFAULT_HTTP_TIMEOUT_MS,
+  HTTP_METHOD,
+  HTTP_REQUEST_FAILED_MESSAGE,
+  HTTP_RESPONSE_NOT_JSON_MESSAGE,
+} from './lib.constants';
 import type { IHttpRequestOptions, IHttpResult } from './lib.interfaces';
 
 // Никогда не бросает и не реджектит промис — CLI-скрипты сами решают, что делать с сетевой
 // ошибкой (для race.ts транспортный сбой одного из 50 конкурентных вызовов — тоже результат,
 // который должен попасть в сводную таблицу, а не оборвать весь прогон необработанным исключением.
-export async function httpRequest<T>(url: string, options: IHttpRequestOptions): Promise<IHttpResult<T>> {
+export async function httpRequest<T>(
+  url: string,
+  options: IHttpRequestOptions,
+): Promise<IHttpResult<T>> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
   let response: Response;
 
@@ -33,7 +41,12 @@ export async function httpRequest<T>(url: string, options: IHttpRequestOptions):
   try {
     return { ok: response.ok, status: response.status, body: JSON.parse(text) as T, error: null };
   } catch {
-    return { ok: response.ok, status: response.status, body: null, error: `${HTTP_RESPONSE_NOT_JSON_MESSAGE}: ${url}` };
+    return {
+      ok: response.ok,
+      status: response.status,
+      body: null,
+      error: `${HTTP_RESPONSE_NOT_JSON_MESSAGE}: ${url}`,
+    };
   }
 }
 
@@ -41,6 +54,10 @@ export function httpGet<T>(url: string, timeoutMs?: number): Promise<IHttpResult
   return httpRequest<T>(url, { method: HTTP_METHOD.GET, timeoutMs });
 }
 
-export function httpPost<T>(url: string, body: unknown, timeoutMs?: number): Promise<IHttpResult<T>> {
+export function httpPost<T>(
+  url: string,
+  body: unknown,
+  timeoutMs?: number,
+): Promise<IHttpResult<T>> {
   return httpRequest<T>(url, { method: HTTP_METHOD.POST, body, timeoutMs });
 }

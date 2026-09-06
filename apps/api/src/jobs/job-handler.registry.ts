@@ -16,7 +16,10 @@ export class JobHandlerRegistry {
 
     for (const handler of handlers) {
       if (this.handlers.has(handler.kind)) {
-        throw new DomainError(ERROR_CODE.INTERNAL_ERROR, buildDuplicateHandlerMessage(handler.kind));
+        throw new DomainError(
+          ERROR_CODE.INTERNAL_ERROR,
+          buildDuplicateHandlerMessage(handler.kind),
+        );
       }
 
       this.handlers.set(handler.kind, handler);

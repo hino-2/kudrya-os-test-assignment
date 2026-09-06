@@ -100,7 +100,9 @@ async function payOrder(extId: string, amountMajor: number, eventId: string): Pr
 }
 
 async function fetchOrderStatus(extId: string): Promise<string> {
-  const rows = await harness.dataSource.query<IOrderRow[]>(SELECT_ORDER_STATUS_BY_EXT_ID_SQL, [extId]);
+  const rows = await harness.dataSource.query<IOrderRow[]>(SELECT_ORDER_STATUS_BY_EXT_ID_SQL, [
+    extId,
+  ]);
   const row = rows[0];
 
   if (row === undefined) {

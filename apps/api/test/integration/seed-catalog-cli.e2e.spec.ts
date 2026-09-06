@@ -90,7 +90,9 @@ describe('npm run seed:catalog', () => {
     const rows = await harness.dataSource.query<ISkuCountRow[]>(KEY_COUNTS_BY_SKU_SQL);
 
     expect(rows).toEqual(
-      [...SEED_KEY_DISTRIBUTION].sort((a, b) => (a.sku < b.sku ? -1 : 1)).map((slice) => ({ sku: slice.sku, count: slice.count })),
+      [...SEED_KEY_DISTRIBUTION]
+        .sort((a, b) => (a.sku < b.sku ? -1 : 1))
+        .map((slice) => ({ sku: slice.sku, count: slice.count })),
     );
   });
 

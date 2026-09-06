@@ -1,24 +1,13 @@
-#!/bin/bash
-set -e
+#!/bin/sh
+# node:22-alpine несёт только busybox sh, bash в образе нет.
+set -eu
 
-echo "⏳ Waiting for database connection..."
-timeout=30
-while [ $timeout -gt 0 ]; do
-  if pg_isready -h postgres -U postgres -d store 2>/dev/null; then
-    echo "✅ Database is ready"
-    break
-  fi
-  timeout=$((timeout - 1))
-  sleep 1
-done
-
-if [ $timeout -eq 0 ]; then
-  echo "❌ Database did not become ready in time"
-  exit 1
-fi
-
+# Ожидания готовности БД здесь нет намеренно: в docker-compose api стартует по
+# condition: service_healthy у postgres, а при прямом docker run без БД миграция падает
+# сразу и с внятной ошибкой драйвера — это громче и диагностичнее, чем 30 секунд
+# молчаливого цикла pg_isready по захардкоженному хосту.
 echo "🔧 Running migrations..."
-node node_modules/typeorm/cli.js migration:run -d apps/api/dist/common/db/data-source.js
+node apps/api/dist/common/db/migrate.js
 
 echo "🚀 Starting application..."
 exec node apps/api/dist/main.js

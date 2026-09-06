@@ -117,17 +117,26 @@ export const CHECK_NAME = {
 
 export const ALL_CHECK_NAMES = Object.values(CHECK_NAME);
 
-export const ATTEMPTS_TABLE_HEADERS = ['SUPPLIER', 'ATTEMPT', 'STATE', 'ERROR_KIND', 'REQUEST_ID', 'MS'];
+export const ATTEMPTS_TABLE_HEADERS = [
+  'SUPPLIER',
+  'ATTEMPT',
+  'STATE',
+  'ERROR_KIND',
+  'REQUEST_ID',
+  'MS',
+];
 
 export const EMPTY_CELL = '-';
 
-export const INVALID_FAIL_MODE_MESSAGE = 'Недопустимое значение --fail-mode (ожидается error_5xx|bad_request|stopped)';
+export const INVALID_FAIL_MODE_MESSAGE =
+  'Недопустимое значение --fail-mode (ожидается error_5xx|bad_request|stopped)';
 
 export const ORDER_CREATE_FAILED_MESSAGE = 'Не удалось создать заказ через POST /orders';
 
 export const ORDER_LOOKUP_FAILED_MESSAGE = 'Не удалось получить заказ через GET /orders/:orderId';
 
-export const CATALOG_LOOKUP_FAILED_MESSAGE = 'Не удалось получить карточку товара через GET /catalog/:sku';
+export const CATALOG_LOOKUP_FAILED_MESSAGE =
+  'Не удалось получить карточку товара через GET /catalog/:sku';
 
 export const WEBHOOK_FAILED_MESSAGE = 'Вебхук оплаты не был принят';
 
@@ -143,11 +152,18 @@ export const STUB_STATE_UNAVAILABLE_MESSAGE = '/_control/state недоступ�
 
 export const NO_STUB_CONTROL_SKIP_MESSAGE = '--no-stub-control';
 
-export const A_STOPPED_SKIP_MESSAGE = '--fail-mode stopped: /_control/state поставщика A недоступен';
+export const A_STOPPED_SKIP_MESSAGE =
+  '--fail-mode stopped: /_control/state поставщика A недоступен';
 
 export const DEMO_FAILED_MESSAGE = 'Ошибка прогона демо фолбэка:';
 
 export const SCENARIOS_RESTORED_MESSAGE = 'Сценарии стендов поставщиков восстановлены в normal';
+
+export const STUB_CONTROL_FAILED_MESSAGE =
+  'Не удалось управлять заглушкой поставщика: запустите её или передайте --no-stub-control (иначе демо пойдёт против режима normal со случайными отказами)';
+
+export const STUB_RESTORE_FAILED_MESSAGE =
+  'Внимание: не удалось восстановить режим normal у заглушек (вердикт прогона это не меняет):';
 
 export const HELP_TEXT = `
 Использование: npm run demo:fallback -- [опции]

@@ -33,7 +33,8 @@ export const WEBHOOK_AMOUNT_MIN = 0;
 
 // created_at обязан нести явное смещение: без него new Date() трактует время в таймзоне
 // процесса, и guardStaleness упорядочивает события по-разному в разных окружениях
-export const ISO_8601_WITH_OFFSET_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+export const ISO_8601_WITH_OFFSET_REGEX =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 export const WEBHOOK_INVALID_CREATED_AT_MESSAGE = 'Поле created_at не является разбираемой датой';
 
@@ -80,7 +81,8 @@ export const PAYMENT_EVENT_FINALISE_SQL = `
 
 export const PAYMENT_TRANSITION_LOST_MESSAGE = 'Не удалось применить платёжный переход к заказу';
 
-export const PAYMENT_TRANSACTION_REQUIRED_MESSAGE = 'Обработка платёжного события требует открытой транзакции';
+export const PAYMENT_TRANSACTION_REQUIRED_MESSAGE =
+  'Обработка платёжного события требует открытой транзакции';
 
 export const PAYMENT_FAILED_REASON = 'Платёж отклонён платёжной системой';
 
@@ -90,7 +92,8 @@ export const AMOUNT_MISMATCH_REASON_TEMPLATE =
 export const STALE_EVENT_REASON_TEMPLATE =
   'Событие устарело: occurred_at %s раньше последнего применённого события %s';
 
-export const IGNORED_EVENT_REASON_TEMPLATE = 'Событие проигнорировано: заказ уже в статусе %s, событие %s — noop';
+export const IGNORED_EVENT_REASON_TEMPLATE =
+  'Событие проигнорировано: заказ уже в статусе %s, событие %s — noop';
 
 export const CONFLICT_EVENT_REASON_TEMPLATE =
   'Конфликт: заказ в статусе %s, входящее событие %s противоречит текущему состоянию';

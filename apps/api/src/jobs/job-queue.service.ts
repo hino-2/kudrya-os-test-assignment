@@ -62,7 +62,10 @@ export class JobQueueService {
     const id = rows[0]?.id ?? null;
 
     if (id === null) {
-      this.logger.event(LOG_EVENT.JOB_ENQUEUE_SKIPPED, { kind: input.kind, dedupe_key: input.dedupeKey });
+      this.logger.event(LOG_EVENT.JOB_ENQUEUE_SKIPPED, {
+        kind: input.kind,
+        dedupe_key: input.dedupeKey,
+      });
     }
 
     return id;

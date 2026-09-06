@@ -52,7 +52,8 @@ const COUNT_LEDGER_TXNS_SQL = 'SELECT count(*)::int AS count FROM ledger_txns';
 
 const COUNT_LEDGER_ENTRIES_SQL = 'SELECT count(*)::int AS count FROM ledger_entries';
 
-const SUM_SIGNED_MINOR_SQL = 'SELECT COALESCE(sum(signed_minor), 0)::bigint AS sum FROM ledger_entries';
+const SUM_SIGNED_MINOR_SQL =
+  'SELECT COALESCE(sum(signed_minor), 0)::bigint AS sum FROM ledger_entries';
 
 let harness: IApiHarness;
 
@@ -135,7 +136,12 @@ describe('LedgerService.postTxn against a real connection', () => {
         orderId: null,
         legs: [
           { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-          { account: 'customer_prepayment', direction: 'credit', amountMinor: 50000, currency: 'RUB' },
+          {
+            account: 'customer_prepayment',
+            direction: 'credit',
+            amountMinor: 50000,
+            currency: 'RUB',
+          },
         ],
       });
 
@@ -170,7 +176,12 @@ describe('LedgerService.postTxn against a real connection', () => {
       idempotencyKey: 'payment_captured:evt_dup',
       orderId: null,
       legs: [
-        { account: 'cash' as const, direction: 'debit' as const, amountMinor: 50000, currency: 'RUB' as const },
+        {
+          account: 'cash' as const,
+          direction: 'debit' as const,
+          amountMinor: 50000,
+          currency: 'RUB' as const,
+        },
         {
           account: 'customer_prepayment' as const,
           direction: 'credit' as const,
@@ -219,7 +230,12 @@ describe('LedgerService.postTxn against a real connection', () => {
       idempotencyKey: 'payment_captured:evt_same_tx',
       orderId: null,
       legs: [
-        { account: 'cash' as const, direction: 'debit' as const, amountMinor: 50000, currency: 'RUB' as const },
+        {
+          account: 'cash' as const,
+          direction: 'debit' as const,
+          amountMinor: 50000,
+          currency: 'RUB' as const,
+        },
         {
           account: 'customer_prepayment' as const,
           direction: 'credit' as const,
@@ -263,7 +279,12 @@ describe('LedgerService.postTxn against a real connection', () => {
           orderId: null,
           legs: [
             { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-            { account: 'customer_prepayment', direction: 'credit', amountMinor: 49000, currency: 'RUB' },
+            {
+              account: 'customer_prepayment',
+              direction: 'credit',
+              amountMinor: 49000,
+              currency: 'RUB',
+            },
           ],
         }),
       ).rejects.toBeInstanceOf(DomainError);
@@ -283,7 +304,12 @@ describe('LedgerService.postTxn against a real connection', () => {
       idempotencyKey: 'payment_captured:evt_concurrent',
       orderId: null,
       legs: [
-        { account: 'cash' as const, direction: 'debit' as const, amountMinor: 50000, currency: 'RUB' as const },
+        {
+          account: 'cash' as const,
+          direction: 'debit' as const,
+          amountMinor: 50000,
+          currency: 'RUB' as const,
+        },
         {
           account: 'customer_prepayment' as const,
           direction: 'credit' as const,

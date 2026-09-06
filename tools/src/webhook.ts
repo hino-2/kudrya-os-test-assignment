@@ -15,7 +15,11 @@ import {
   REQUEST_FAILED_MESSAGE,
   WEBHOOK_PAYMENT_PATH,
 } from './webhook.constants';
-import type { IWebhookCliOptions, IWebhookPayload, IWebhookResponseBody } from './webhook.interfaces';
+import type {
+  IWebhookCliOptions,
+  IWebhookPayload,
+  IWebhookResponseBody,
+} from './webhook.interfaces';
 import type { WebhookPaymentStatus } from './webhook.type';
 
 function isPaymentStatus(value: string): value is WebhookPaymentStatus {
@@ -56,7 +60,11 @@ function buildOptions(argv: string[]): IWebhookCliOptions | undefined {
     currency: stringArg(args, 'currency', DEFAULT_CURRENCY) as string,
     eventId: stringArg(args, 'event', `${EVENT_ID_PREFIX}${Date.now()}`) as string,
     createdAt: stringArg(args, 'created-at', new Date().toISOString()) as string,
-    apiBaseUrl: stringArg(args, 'api', process.env[API_BASE_URL_VAR] ?? DEFAULT_API_BASE_URL) as string,
+    apiBaseUrl: stringArg(
+      args,
+      'api',
+      process.env[API_BASE_URL_VAR] ?? DEFAULT_API_BASE_URL,
+    ) as string,
     timeoutMs: intArg(args, 'timeout-ms', DEFAULT_TIMEOUT_MS),
   };
 }
@@ -73,7 +81,10 @@ function buildPayload(options: IWebhookCliOptions): IWebhookPayload {
 }
 
 function reportFailure(error: unknown): void {
-  console.error('Ошибка при отправке вебхука:', error instanceof Error ? error.message : String(error));
+  console.error(
+    'Ошибка при отправке вебхука:',
+    error instanceof Error ? error.message : String(error),
+  );
   process.exitCode = 1;
 }
 
@@ -95,7 +106,9 @@ async function main(): Promise<void> {
   const result = await httpPost<IWebhookResponseBody>(url, payload, options.timeoutMs);
 
   if (!result.ok || result.body === null) {
-    console.error(`${REQUEST_FAILED_MESSAGE}: status=${result.status} error=${result.error ?? 'нет тела ответа'}`);
+    console.error(
+      `${REQUEST_FAILED_MESSAGE}: status=${result.status} error=${result.error ?? 'нет тела ответа'}`,
+    );
     process.exitCode = 1;
     return;
   }

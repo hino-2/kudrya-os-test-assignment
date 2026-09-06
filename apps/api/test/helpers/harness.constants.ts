@@ -29,7 +29,8 @@ export const MISSING_DATABASE_URL_MESSAGE =
 
 export const INVALID_DATABASE_URL_MESSAGE = 'Строка подключения не содержит имени базы данных';
 
-export const UNSAFE_DATABASE_MESSAGE = 'Интеграционные тесты очищают базу целиком (TRUNCATE) и отказались работать с базой';
+export const UNSAFE_DATABASE_MESSAGE =
+  'Интеграционные тесты очищают базу целиком (TRUNCATE) и отказались работать с базой';
 
 export const UNSAFE_DATABASE_HINT =
   'Имя не похоже на тестовое. Создайте отдельную базу (например store_test) и укажите её в TEST_DATABASE_URL ' +
@@ -177,7 +178,12 @@ export const SEED_IN_STOCK_SYNC_SQL = `
   WHERE s.product_id = p.id AND p.in_stock <> (s.available_count > 0)
 `;
 
-export const TOOLS_SEED_CONSTANTS_FILE = path.join(REPO_ROOT, 'tools', 'src', 'seed-catalog.constants.ts');
+export const TOOLS_SEED_CONSTANTS_FILE = path.join(
+  REPO_ROOT,
+  'tools',
+  'src',
+  'seed-catalog.constants.ts',
+);
 
 export const TOOLS_SEED_SCRIPT = path.join(REPO_ROOT, 'tools', 'src', 'seed-catalog.ts');
 

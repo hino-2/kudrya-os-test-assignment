@@ -14,7 +14,8 @@ interface ICountRow {
   count: number;
 }
 
-const COUNT_JOBS_BY_DEDUPE_KEY_SQL = 'SELECT count(*)::int AS count FROM jobs WHERE dedupe_key = $1';
+const COUNT_JOBS_BY_DEDUPE_KEY_SQL =
+  'SELECT count(*)::int AS count FROM jobs WHERE dedupe_key = $1';
 
 const SELECT_JOBS_BY_DEDUPE_PREFIX_SQL = 'SELECT * FROM jobs WHERE dedupe_key LIKE $1 ORDER BY id';
 
@@ -91,7 +92,9 @@ describe('job queue + worker', () => {
     // джобу отобрали и перезабрали: state снова running, но владелец другой
     await harness.dataSource.query(REASSIGN_JOB_OWNER_SQL, [dedupeKey, LIVE_WORKER_ID]);
 
-    const completed = await unitOfWork.withTransaction((qr) => queue.complete(qr, job.id, STALE_WORKER_ID));
+    const completed = await unitOfWork.withTransaction((qr) =>
+      queue.complete(qr, job.id, STALE_WORKER_ID),
+    );
 
     expect(completed).toBe(false);
 
@@ -108,7 +111,9 @@ describe('job queue + worker', () => {
 
     expect(failed.applied).toBe(false);
 
-    const afterRows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const afterRows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
     const after = afterRows[0];
 
     expect(after.state).toBe(JOB_STATE.RUNNING);
@@ -163,7 +168,9 @@ describe('job queue + worker', () => {
     expect(owned.state).toBe(JOB_STATE.DEAD);
     expect(owned.applied).toBe(true);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
 
     expect(rows[0].state).toBe(JOB_STATE.DEAD);
     expect(rows[0].last_error).toContain('dead branch');
@@ -178,8 +185,12 @@ describe('job queue + worker', () => {
     await enqueue({ dedupeKey, maxAttempts: 2 });
     await enqueue({ dedupeKey: defaultKey });
 
-    const [trimmed] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
-    const [defaulted] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [defaultKey]);
+    const [trimmed] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
+    const [defaulted] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      defaultKey,
+    ]);
 
     expect(trimmed.max_attempts).toBe(2);
     expect(defaulted.max_attempts).toBe(harness.get(AppConfigService).jobs.maxAttempts);
@@ -187,14 +198,14 @@ describe('job queue + worker', () => {
 
   it('deduplicates concurrent enqueue calls sharing the same dedupe key', async () => {
     const dedupeKey = 'dedupe:concurrent';
-    const results = await Promise.all(
-      Array.from({ length: 20 }, () => enqueue({ dedupeKey })),
-    );
+    const results = await Promise.all(Array.from({ length: 20 }, () => enqueue({ dedupeKey })));
     const insertedIds = results.filter((id): id is number => id !== null);
 
     expect(insertedIds).toHaveLength(1);
 
-    const countRows = await harness.dataSource.query<ICountRow[]>(COUNT_JOBS_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const countRows = await harness.dataSource.query<ICountRow[]>(COUNT_JOBS_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
 
     expect(countRows[0]?.count).toBe(1);
   });
@@ -211,7 +222,9 @@ describe('job queue + worker', () => {
 
     expect(resultA.claimed + resultB.claimed).toBe(jobCount);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOBS_BY_DEDUPE_PREFIX_SQL, ['parallel:%']);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOBS_BY_DEDUPE_PREFIX_SQL, [
+      'parallel:%',
+    ]);
 
     expect(rows).toHaveLength(jobCount);
 
@@ -233,7 +246,9 @@ describe('job queue + worker', () => {
     expect(result.failed).toBe(1);
     expect(result.dead).toBe(0);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
     const job = rows[0];
 
     expect(job).toBeDefined();
@@ -255,7 +270,9 @@ describe('job queue + worker', () => {
     expect(result.claimed).toBe(1);
     expect(result.dead).toBe(1);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
     const job = rows[0];
 
     expect(job).toBeDefined();
@@ -272,11 +289,15 @@ describe('job queue + worker', () => {
     await enqueue({ dedupeKey });
     await harness.dataSource.query(MARK_STALE_RUNNING_SQL, [dedupeKey, lockTtlMs + 10000]);
 
-    const requeuedCount = await unitOfWork.withTransaction((qr) => queue.requeueStale(qr, lockTtlMs));
+    const requeuedCount = await unitOfWork.withTransaction((qr) =>
+      queue.requeueStale(qr, lockTtlMs),
+    );
 
     expect(requeuedCount).toBe(1);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
     const job = rows[0];
 
     expect(job).toBeDefined();
@@ -295,11 +316,15 @@ describe('job queue + worker', () => {
     await enqueue({ dedupeKey });
     await harness.dataSource.query(MARK_STALE_RUNNING_SQL, [dedupeKey, 1000]);
 
-    const requeuedCount = await unitOfWork.withTransaction((qr) => queue.requeueStale(qr, lockTtlMs));
+    const requeuedCount = await unitOfWork.withTransaction((qr) =>
+      queue.requeueStale(qr, lockTtlMs),
+    );
 
     expect(requeuedCount).toBe(0);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
 
     expect(rows[0]?.state).toBe(JOB_STATE.RUNNING);
   });
@@ -315,7 +340,9 @@ describe('job queue + worker', () => {
 
     expect(result.claimed).toBe(0);
 
-    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const rows = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [
+      dedupeKey,
+    ]);
     const job = rows[0];
 
     expect(job).toBeDefined();

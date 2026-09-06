@@ -68,7 +68,11 @@ export function buildRaceEvents(
   return events;
 }
 
-async function post<T>(baseUrl: string, path: string, payload: unknown): Promise<IRaceHttpResult<T>> {
+async function post<T>(
+  baseUrl: string,
+  path: string,
+  payload: unknown,
+): Promise<IRaceHttpResult<T>> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -81,7 +85,10 @@ async function post<T>(baseUrl: string, path: string, payload: unknown): Promise
 
 // все запросы стартуют без ожидания друг друга (Promise.all) — это и есть гонка: сервер должен
 // сериализовать конкурентный доступ к одному order_id сам (FOR UPDATE), а не полагаться на клиента
-export function fireRace<T>(apiBaseUrl: string, events: IRacePayload[]): Promise<IRaceHttpResult<T>[]> {
+export function fireRace<T>(
+  apiBaseUrl: string,
+  events: IRacePayload[],
+): Promise<IRaceHttpResult<T>[]> {
   return Promise.all(events.map((event) => post<T>(apiBaseUrl, WEBHOOK_PAYMENT_PATH, event)));
 }
 
@@ -143,7 +150,12 @@ export async function waitForDelivered(dataSource: DataSource, extId: string): P
 // первая (и в сценариях этого спека единственная) попытка доставки всегда идёт с исходным
 // delivery_generation=0 (см. миграцию InitCore, DEFAULT 0) на поставщике A, attempt_no=1
 export function expectedRequestId(extId: string): string {
-  return buildSupplierRequestId(extId, RACE_INITIAL_DELIVERY_GENERATION, SUPPLIER_CODE.A, RACE_FIRST_SUPPLIER_ATTEMPT_NO);
+  return buildSupplierRequestId(
+    extId,
+    RACE_INITIAL_DELIVERY_GENERATION,
+    SUPPLIER_CODE.A,
+    RACE_FIRST_SUPPLIER_ATTEMPT_NO,
+  );
 }
 
 export async function resetStub(stub: IStubHarness): Promise<void> {

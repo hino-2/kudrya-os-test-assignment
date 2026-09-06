@@ -33,7 +33,7 @@ export async function startStub(envOverrides?: Record<string, string>): Promise<
 
   await app.listen(0, TEST_HOST);
 
-  const server: Server = app.getHttpServer();
+  const server = app.getHttpServer() as Server;
   const port = resolvePort(server);
 
   return {

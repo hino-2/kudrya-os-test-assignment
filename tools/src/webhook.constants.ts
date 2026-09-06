@@ -15,7 +15,8 @@ export const PAYMENT_STATUS = {
   FAILED: 'failed',
 } as const;
 
-export const MISSING_REQUIRED_ARGS_MESSAGE = 'Обязательные аргументы не заданы: --order, --status, --amount';
+export const MISSING_REQUIRED_ARGS_MESSAGE =
+  'Обязательные аргументы не заданы: --order, --status, --amount';
 
 export const INVALID_STATUS_MESSAGE = 'Недопустимое значение --status (ожидается paid|failed)';
 

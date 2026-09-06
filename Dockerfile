@@ -14,7 +14,6 @@ RUN npm run build
 FROM node:22-alpine AS runtime
 WORKDIR /workspace
 ENV NODE_ENV=production
-RUN apk add --no-cache postgresql-client
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/supplier-stub/package.json apps/supplier-stub/package.json
@@ -27,4 +26,11 @@ RUN chmod +x /workspace/apps/api/docker-entrypoint.sh
 RUN addgroup -S app && adduser -S app -G app
 RUN chown -R app:app /workspace
 USER app
+
+# Проба живости (не готовности): GET /health не трогает БД, поэтому мигание постгреса не
+# роняет контейнер в unhealthy. Живёт в образе, а не только в compose, потому что образ один
+# на api и на обе заглушки — маршрут /health есть у всех трёх, а порт берётся из PORT.
+# curl в node:22-alpine нет, wget даёт busybox.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 CMD wget -q -O /dev/null "http://127.0.0.1:${PORT:-3000}/health"
+
 CMD ["node", "apps/api/dist/main.js"]

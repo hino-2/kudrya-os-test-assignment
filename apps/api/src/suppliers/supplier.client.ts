@@ -135,7 +135,10 @@ export class SupplierClient {
     const url = `${this.baseUrlFor(code)}${SUPPLIER_CONTROL_RESTOCK_PATH}`;
     const requestBody: ISupplierRestockRequestBody = { count };
 
-    this.logger.event(LOG_EVENT.SUPPLIER_REQUEST, { supplier_code: code, path: SUPPLIER_CONTROL_RESTOCK_PATH });
+    this.logger.event(LOG_EVENT.SUPPLIER_REQUEST, {
+      supplier_code: code,
+      path: SUPPLIER_CONTROL_RESTOCK_PATH,
+    });
 
     try {
       const response = await fetch(url, {
@@ -216,7 +219,13 @@ export class SupplierClient {
       // бы джобу на issued_deliveries_code_uq
       if (isSupplierSuccessBody(body)) {
         return matchesRequestId(body, requestId)
-          ? { kind: SUPPLIER_OUTCOME.ISSUED, code: body.code, httpStatus: status, errorKind: null, errorReason: null }
+          ? {
+              kind: SUPPLIER_OUTCOME.ISSUED,
+              code: body.code,
+              httpStatus: status,
+              errorKind: null,
+              errorReason: null,
+            }
           : {
               kind: SUPPLIER_OUTCOME.UNKNOWN,
               code: null,
@@ -249,10 +258,20 @@ export class SupplierClient {
   // единственный определённый исход чтения — 404: поставщик отрицает сам request_id. Любой
   // другой 4xx/5xx означает, что чтение не удалось, а неудавшееся чтение ничего не говорит
   // о выдаче — карве-аута для тела {"status":"error"}, как в classifySupplierHttpStatus, здесь нет
-  private classifyLookupResponse(status: number, body: unknown, requestId: string): IssueOutcomeShape {
+  private classifyLookupResponse(
+    status: number,
+    body: unknown,
+    requestId: string,
+  ): IssueOutcomeShape {
     if (status < HTTP_STATUS_CLIENT_ERROR_MIN) {
       if (isSupplierSuccessBody(body) && matchesRequestId(body, requestId)) {
-        return { kind: SUPPLIER_OUTCOME.ISSUED, code: body.code, httpStatus: status, errorKind: null, errorReason: null };
+        return {
+          kind: SUPPLIER_OUTCOME.ISSUED,
+          code: body.code,
+          httpStatus: status,
+          errorKind: null,
+          errorReason: null,
+        };
       }
 
       return {
@@ -279,7 +298,9 @@ export class SupplierClient {
       code: null,
       httpStatus: status,
       errorKind:
-        status >= HTTP_STATUS_SERVER_ERROR_MIN ? SUPPLIER_ERROR_KIND.HTTP_5XX : SUPPLIER_ERROR_KIND.BAD_BODY,
+        status >= HTTP_STATUS_SERVER_ERROR_MIN
+          ? SUPPLIER_ERROR_KIND.HTTP_5XX
+          : SUPPLIER_ERROR_KIND.BAD_BODY,
       errorReason: extractSupplierReason(body),
     };
   }

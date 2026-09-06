@@ -2,7 +2,10 @@ import * as os from 'node:os';
 
 import { describe, expect, it } from 'vitest';
 
-import { ADMIN_TOKEN_DEV_DEFAULT, ADMIN_TOKEN_MIN_LENGTH } from '../../src/common/config/config.constants';
+import {
+  ADMIN_TOKEN_DEV_DEFAULT,
+  ADMIN_TOKEN_MIN_LENGTH,
+} from '../../src/common/config/config.constants';
 import { defaultWorkerId, validateEnv } from '../../src/common/config/env.validation';
 
 const VALID_ENV = {
@@ -71,9 +74,9 @@ describe('validateEnv', () => {
   });
 
   it('rejects the published dev ADMIN_TOKEN in production', () => {
-    expect(() => validateEnv({ ...PRODUCTION_ADMIN_ENV, ADMIN_TOKEN: ADMIN_TOKEN_DEV_DEFAULT })).toThrowError(
-      /ADMIN_TOKEN не может совпадать с публичным дефолтом/,
-    );
+    expect(() =>
+      validateEnv({ ...PRODUCTION_ADMIN_ENV, ADMIN_TOKEN: ADMIN_TOKEN_DEV_DEFAULT }),
+    ).toThrowError(/ADMIN_TOKEN не может совпадать с публичным дефолтом/);
   });
 
   // самый вероятный реальный триггер: деплой не задал переменную вовсе, и она разрешается
@@ -87,7 +90,9 @@ describe('validateEnv', () => {
   it('rejects an ADMIN_TOKEN shorter than the minimum in production', () => {
     expect(() =>
       validateEnv({ ...PRODUCTION_ADMIN_ENV, ADMIN_TOKEN: STRONG_ADMIN_TOKEN.slice(1) }),
-    ).toThrowError(new RegExp(`ADMIN_TOKEN должен быть не короче ${ADMIN_TOKEN_MIN_LENGTH} символов`));
+    ).toThrowError(
+      new RegExp(`ADMIN_TOKEN должен быть не короче ${ADMIN_TOKEN_MIN_LENGTH} символов`),
+    );
   });
 
   it('accepts a long non-default ADMIN_TOKEN in production', () => {
@@ -120,7 +125,11 @@ describe('validateEnv', () => {
   });
 
   it('accepts the exact JOB_MAX_ATTEMPTS budget the supplier chain needs', () => {
-    const env = validateEnv({ ...VALID_ENV, JOB_MAX_ATTEMPTS: '5', SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2' });
+    const env = validateEnv({
+      ...VALID_ENV,
+      JOB_MAX_ATTEMPTS: '5',
+      SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2',
+    });
 
     expect(env.JOB_MAX_ATTEMPTS).toBe(5);
   });
@@ -129,7 +138,12 @@ describe('validateEnv', () => {
     expect.assertions(3);
 
     try {
-      validateEnv({ ...VALID_ENV, PORT: 'abc', CATALOG_DEFAULT_LIMIT: '200', CATALOG_MAX_LIMIT: '100' });
+      validateEnv({
+        ...VALID_ENV,
+        PORT: 'abc',
+        CATALOG_DEFAULT_LIMIT: '200',
+        CATALOG_MAX_LIMIT: '100',
+      });
     } catch (error) {
       const message = (error as Error).message;
 

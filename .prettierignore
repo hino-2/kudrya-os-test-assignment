@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+package-lock.json
+.stub-state-*.json
+
+# Документация вычитана и сверстана вручную (таблицы, переносы, вложенные списки) —
+# prettier переливает markdown по своим правилам и ломает эту вёрстку.
+*.md

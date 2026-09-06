@@ -71,4 +71,5 @@ export const HTTP_STATUS_CLIENT_ERROR_MIN = 400;
 
 export const UNKNOWN_SUPPLIER_CODE_MESSAGE_TEMPLATE = 'Неизвестный код поставщика: %s';
 
-export const SUPPLIER_MISSING_ERROR_KIND_MESSAGE = 'У неуспешного исхода поставщика отсутствует error_kind — нарушение контракта supplier.client';
+export const SUPPLIER_MISSING_ERROR_KIND_MESSAGE =
+  'У неуспешного исхода поставщика отсутствует error_kind — нарушение контракта supplier.client';

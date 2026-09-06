@@ -47,7 +47,11 @@ describe('orders.util', () => {
     });
 
     it('snapshots the sku and the currency from the product, not from the request', () => {
-      const draft = buildOrderDraft(product({ sku: 'KEY-GTA5' }), request({ sku: 'steam-topup-500' }), 'ord_1');
+      const draft = buildOrderDraft(
+        product({ sku: 'KEY-GTA5' }),
+        request({ sku: 'steam-topup-500' }),
+        'ord_1',
+      );
 
       expect(draft.sku).toBe('KEY-GTA5');
       expect(draft.currency).toBe('RUB');
@@ -57,7 +61,9 @@ describe('orders.util', () => {
 
     it('defaults the buyer email to null and keeps it when given', () => {
       expect(buildOrderDraft(product(), request(), 'ord_00100').buyerEmail).toBeNull();
-      expect(buildOrderDraft(product(), request({ buyer_email: 'a@b.io' }), 'ord_00100').buyerEmail).toBe('a@b.io');
+      expect(
+        buildOrderDraft(product(), request({ buyer_email: 'a@b.io' }), 'ord_00100').buyerEmail,
+      ).toBe('a@b.io');
     });
 
     it('rejects a price that is not a safe integer', () => {

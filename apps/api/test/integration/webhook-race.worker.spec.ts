@@ -7,12 +7,22 @@ import { ATTEMPT_STATE } from '../../src/delivery/delivery.constants';
 import { SUPPLIER_CODE } from '../../src/suppliers/suppliers.constants';
 import { startApi } from '../helpers/app.harness';
 import { startStub } from '../helpers/stub.harness';
-import { TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
+import {
+  TEST_WORKER_SUPPLIER_A_PORT,
+  TEST_WORKER_SUPPLIER_B_PORT,
+} from '../helpers/harness.constants';
 import type { IApiHarness, IStubHarness } from '../helpers/harness.interfaces';
 import { resetDatabase } from '../helpers/pg.helper';
 import { seedCatalog } from '../helpers/seed.helper';
 import { buildDeliverOrderDedupeKey } from '../../src/jobs/jobs.util';
-import { buildRaceEvents, expectedRequestId, fireRace, resetStub, summariseResults, waitForDelivered } from '../helpers/race.helper';
+import {
+  buildRaceEvents,
+  expectedRequestId,
+  fireRace,
+  resetStub,
+  summariseResults,
+  waitForDelivered,
+} from '../helpers/race.helper';
 import {
   CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL,
   COUNT_APPLIED_PAYMENT_EVENTS_SQL,
@@ -174,7 +184,9 @@ async function runRaceIteration(extId: string, amountMajor: number): Promise<voi
 
   expect(sumRows[0]?.sum ?? -1).toBe(0);
 
-  const cashDebitRows = await api.dataSource.query<ISumRow[]>(CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL, [orderId]);
+  const cashDebitRows = await api.dataSource.query<ISumRow[]>(CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL, [
+    orderId,
+  ]);
   const cashDebit = cashDebitRows[0];
 
   expect(cashDebit?.count).toBe(1);
@@ -223,7 +235,10 @@ describe('webhook race: supplier fulfilment mode (STEAM-TOPUP-500)', () => {
       // 7 (уточнение для supplier-режима). ровно одна попытка доставки, поставщик A, attempt_no=1
       expect(await countOne(COUNT_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL, [orderId])).toBe(1);
 
-      const attempts = await api.dataSource.query<IDeliveryAttemptRow[]>(SELECT_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL, [orderId]);
+      const attempts = await api.dataSource.query<IDeliveryAttemptRow[]>(
+        SELECT_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL,
+        [orderId],
+      );
       const requestId = expectedRequestId(extId);
 
       expect(attempts).toHaveLength(1);
@@ -248,9 +263,10 @@ describe('webhook race: pool fulfilment mode (KEY-CS2-PRIME)', () => {
   it.each(Array.from({ length: RACE_ITERATIONS }, (_, index) => index + 1))(
     'fires 50 concurrent webhooks for the same order and delivers exactly one key — iteration %i',
     async () => {
-      const availableBeforeRows = await api.dataSource.query<IAvailableCountRow[]>(SELECT_AVAILABLE_COUNT_BY_SKU_SQL, [
-        POOL_RACE_SKU,
-      ]);
+      const availableBeforeRows = await api.dataSource.query<IAvailableCountRow[]>(
+        SELECT_AVAILABLE_COUNT_BY_SKU_SQL,
+        [POOL_RACE_SKU],
+      );
       const availableBefore = availableBeforeRows[0]?.available_count ?? -1;
 
       const extId = await createOrder(POOL_RACE_SKU);
@@ -262,9 +278,10 @@ describe('webhook race: pool fulfilment mode (KEY-CS2-PRIME)', () => {
       // 10. ровно один ключ пула закреплён за заказом, доступный остаток уменьшился ровно на 1
       expect(await countOne(COUNT_STOCK_KEYS_BY_ORDER_ID_SQL, [orderId])).toBe(1);
 
-      const availableAfterRows = await api.dataSource.query<IAvailableCountRow[]>(SELECT_AVAILABLE_COUNT_BY_SKU_SQL, [
-        POOL_RACE_SKU,
-      ]);
+      const availableAfterRows = await api.dataSource.query<IAvailableCountRow[]>(
+        SELECT_AVAILABLE_COUNT_BY_SKU_SQL,
+        [POOL_RACE_SKU],
+      );
       const availableAfter = availableAfterRows[0]?.available_count ?? -1;
 
       expect(availableAfter).toBe(availableBefore - 1);

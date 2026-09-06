@@ -53,8 +53,12 @@ export class AppConfigService {
       aBaseUrl: configService.get('SUPPLIER_A_BASE_URL', { infer: true }),
       bBaseUrl: configService.get('SUPPLIER_B_BASE_URL', { infer: true }),
       requestTimeoutMs: configService.get('SUPPLIER_REQUEST_TIMEOUT_MS', { infer: true }),
-      maxAttemptsPerSupplier: configService.get('SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER', { infer: true }),
-      unknownMaxResolveAttempts: configService.get('SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS', { infer: true }),
+      maxAttemptsPerSupplier: configService.get('SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER', {
+        infer: true,
+      }),
+      unknownMaxResolveAttempts: configService.get('SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS', {
+        infer: true,
+      }),
       retryBaseMs: configService.get('SUPPLIER_RETRY_BASE_MS', { infer: true }),
       retryMaxMs: configService.get('SUPPLIER_RETRY_MAX_MS', { infer: true }),
       jobBudgetMs: configService.get('SUPPLIER_JOB_BUDGET_MS', { infer: true }),
@@ -78,7 +82,9 @@ export class AppConfigService {
       batchSize: configService.get('SWEEPER_BATCH_SIZE', { infer: true }),
       stuckOrderAgeSeconds: configService.get('STUCK_ORDER_AGE_SECONDS', { infer: true }),
       outOfStockRetrySeconds: configService.get('OUT_OF_STOCK_RETRY_SECONDS', { infer: true }),
-      deliveryFailedRetrySeconds: configService.get('DELIVERY_FAILED_RETRY_SECONDS', { infer: true }),
+      deliveryFailedRetrySeconds: configService.get('DELIVERY_FAILED_RETRY_SECONDS', {
+        infer: true,
+      }),
       maxDeliveryGenerations: configService.get('MAX_DELIVERY_GENERATIONS', { infer: true }),
       attemptInflightTimeoutMs: configService.get('ATTEMPT_INFLIGHT_TIMEOUT_MS', { infer: true }),
       orphanTtlSeconds: configService.get('ORPHAN_TTL_SECONDS', { infer: true }),

@@ -2,7 +2,13 @@ import { Controller, Get, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import type { IHealthResponse, IReadinessResponse } from './health.interfaces';
-import { APP_VERSION, HEALTH_ROUTE, READINESS_DEGRADED_STATUS, READINESS_OK_STATUS, SERVICE_NAME } from './http.constants';
+import {
+  APP_VERSION,
+  HEALTH_ROUTE,
+  READINESS_DEGRADED_STATUS,
+  READINESS_OK_STATUS,
+  SERVICE_NAME,
+} from './http.constants';
 import { ReadinessRegistry } from './readiness.registry';
 
 @Controller(HEALTH_ROUTE)

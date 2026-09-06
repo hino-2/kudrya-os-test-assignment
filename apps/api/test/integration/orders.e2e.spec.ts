@@ -458,7 +458,9 @@ describe('OrdersRepository single-writer primitives', () => {
       await runner.connect();
       await runner.startTransaction();
 
-      const updated = await repository.transition(runner, before.id, 'created', 'paid', { markPaid: true });
+      const updated = await repository.transition(runner, before.id, 'created', 'paid', {
+        markPaid: true,
+      });
 
       expect(updated.status).toBe('paid');
       expect(updated.paid_at).not.toBeNull();
@@ -520,7 +522,11 @@ describe('OrdersRepository single-writer primitives', () => {
 
     expect(DomainError.isDomainError(caught)).toBe(true);
     expect((caught as DomainError).code).toBe(ERROR_CODE.INTERNAL_ERROR);
-    expect((caught as DomainError).details).toEqual({ order_id: before.id, from: 'paid', to: 'delivering' });
+    expect((caught as DomainError).details).toEqual({
+      order_id: before.id,
+      from: 'paid',
+      to: 'delivering',
+    });
 
     const after = await storedOrder(created.body.order_id);
 
@@ -568,18 +574,32 @@ describe('OrdersRepository single-writer primitives', () => {
       await runner.connect();
       await runner.startTransaction();
 
-      const paid = await repository.transition(runner, before.id, 'created', 'paid', { markPaid: true });
+      const paid = await repository.transition(runner, before.id, 'created', 'paid', {
+        markPaid: true,
+      });
       const delivering = await repository.transition(runner, before.id, 'paid', 'delivering', {});
 
       expect(delivering.paid_at?.getTime()).toBe(paid.paid_at?.getTime());
 
-      const failed = await repository.transition(runner, before.id, 'delivering', 'delivery_failed', {
-        failureReason: 'supplier timeout',
-      });
+      const failed = await repository.transition(
+        runner,
+        before.id,
+        'delivering',
+        'delivery_failed',
+        {
+          failureReason: 'supplier timeout',
+        },
+      );
 
       expect(failed.failure_reason).toBe('supplier timeout');
 
-      const retried = await repository.transition(runner, before.id, 'delivery_failed', 'delivering', {});
+      const retried = await repository.transition(
+        runner,
+        before.id,
+        'delivery_failed',
+        'delivering',
+        {},
+      );
 
       expect(retried.failure_reason).toBeNull();
       expect(retried.paid_at?.getTime()).toBe(paid.paid_at?.getTime());
@@ -650,13 +670,13 @@ describe('OrdersRepository single-writer primitives', () => {
       await runnerB.startTransaction();
 
       const pendingB = repository.lockForUpdate(runnerB, extId);
-
-      expect(await Promise.race([pendingB, delay(LOCK_PROBE_MS)])).toBe(PENDING);
+      const probeB = await Promise.race([pendingB, delay(LOCK_PROBE_MS)]);
 
       await runnerA.commitTransaction();
 
       const lockedB = requireOrder(await pendingB);
 
+      expect(probeB).toBe(PENDING);
       expect(lockedB.status).toBe('paid');
       await runnerB.commitTransaction();
     } finally {

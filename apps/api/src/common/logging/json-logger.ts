@@ -1,8 +1,18 @@
 import type { LoggerService, LogLevel as NestLogLevel } from '@nestjs/common';
 
 import type { CorrelationStore } from './correlation.store';
-import { LOG_LEVEL_SEVERITY, NEST_FRAMEWORK_EVENT, NEST_LEVEL_MAP, NEST_STACK_PATTERN } from './logging.constants';
-import type { IErrorPayload, IJsonLoggerOptions, ILogRecord, ILogRecordInput } from './logging.interfaces';
+import {
+  LOG_LEVEL_SEVERITY,
+  NEST_FRAMEWORK_EVENT,
+  NEST_LEVEL_MAP,
+  NEST_STACK_PATTERN,
+} from './logging.constants';
+import type {
+  IErrorPayload,
+  IJsonLoggerOptions,
+  ILogRecord,
+  ILogRecordInput,
+} from './logging.interfaces';
 import type { LogLevel } from './logging.type';
 
 const PRETTY_TRACE_ID_LENGTH = 8;
@@ -85,14 +95,17 @@ export class JsonLogger implements LoggerService {
     const level = NEST_LEVEL_MAP[nestLevel] ?? 'info';
     const last = optionalParams.length > 0 ? optionalParams[optionalParams.length - 1] : undefined;
     const lastIsStack = typeof last === 'string' && NEST_STACK_PATTERN.test(last);
-    const ctx = last !== undefined && !lastIsStack ? String(last) : undefined;
+    const ctx = typeof last === 'string' && !lastIsStack ? last : undefined;
 
     this.write({
       level,
       event: NEST_FRAMEWORK_EVENT,
       ctx,
       msg: String(message),
-      err: level === 'error' ? this.resolveNestError(message, lastIsStack ? (last as string) : undefined) : undefined,
+      err:
+        level === 'error'
+          ? this.resolveNestError(message, lastIsStack ? last : undefined)
+          : undefined,
     });
   }
 
@@ -130,7 +143,8 @@ export class JsonLogger implements LoggerService {
     const sink = this.options.sink ?? ((line: string) => process.stdout.write(line));
 
     try {
-      const line = this.options.format === 'pretty' ? this.formatPretty(record) : this.safeStringify(record);
+      const line =
+        this.options.format === 'pretty' ? this.formatPretty(record) : this.safeStringify(record);
 
       sink(`${line}\n`);
     } catch {
@@ -181,7 +195,9 @@ export class JsonLogger implements LoggerService {
     const time = record.ts.slice(11, 23);
     const ctxPart = record.ctx ? `[${record.ctx}] ` : '';
     const traceId = record.trace_id ? record.trace_id.slice(0, PRETTY_TRACE_ID_LENGTH) : 'none';
-    const parts = [`${time} ${record.level.toUpperCase()} ${ctxPart}${record.event} trace=${traceId}`];
+    const parts = [
+      `${time} ${record.level.toUpperCase()} ${ctxPart}${record.event} trace=${traceId}`,
+    ];
 
     if (record.duration_ms !== undefined) {
       parts.push(`duration_ms=${record.duration_ms}`);

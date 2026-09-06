@@ -163,10 +163,18 @@ export class OrdersRepository {
     return this.run<IDeliveryAttemptRow>(ORDER_DELIVERY_ATTEMPTS_SQL, [orderId]);
   }
 
-  async findStuckPaidDelivering(qr: QueryRunner, ageSeconds: number, limit: number): Promise<IStuckDeliveryOrderRow[]> {
+  async findStuckPaidDelivering(
+    qr: QueryRunner,
+    ageSeconds: number,
+    limit: number,
+  ): Promise<IStuckDeliveryOrderRow[]> {
     this.assertTransaction(qr);
 
-    return this.run<IStuckDeliveryOrderRow>(ORDER_FIND_STUCK_PAID_DELIVERING_SQL, [ageSeconds, limit], qr);
+    return this.run<IStuckDeliveryOrderRow>(
+      ORDER_FIND_STUCK_PAID_DELIVERING_SQL,
+      [ageSeconds, limit],
+      qr,
+    );
   }
 
   async findRetryableOutOfStock(
@@ -212,7 +220,7 @@ export class OrdersRepository {
 
   // Драйвер отдаёт UPDATE как [rows, rowCount], поэтому строки берутся из структурированного результата.
   private async runUpdate<T>(sql: string, params: unknown[], qr: QueryRunner): Promise<T[]> {
-    const result: QueryResult<T> = await qr.query(sql, params, true);
+    const result = (await qr.query(sql, params, true)) as QueryResult<T>;
 
     return result.records;
   }

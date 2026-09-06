@@ -13,11 +13,14 @@ export class DeliveryService {
   constructor(
     private readonly unitOfWork: UnitOfWorkService,
     private readonly deliveryRepository: DeliveryRepository,
-    @Inject(DELIVERY_FULFILMENT_SERVICES) private readonly fulfilmentServices: readonly IFulfilmentService[],
+    @Inject(DELIVERY_FULFILMENT_SERVICES)
+    private readonly fulfilmentServices: readonly IFulfilmentService[],
   ) {}
 
   async deliver(input: IFulfilInput): Promise<IDeliveryResult> {
-    const mode = await this.unitOfWork.withTransaction((qr) => this.deliveryRepository.findFulfillmentMode(qr, input.orderId));
+    const mode = await this.unitOfWork.withTransaction((qr) =>
+      this.deliveryRepository.findFulfillmentMode(qr, input.orderId),
+    );
 
     if (mode === null) {
       throw new DomainError(ERROR_CODE.ORDER_NOT_FOUND, buildOrderNotFoundMessage(input.orderId));

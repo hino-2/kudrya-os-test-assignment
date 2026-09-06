@@ -14,10 +14,19 @@ import { LedgerService } from '../ledger/ledger.service';
 import { buildBalancedLegs, buildDeliveryRecognizedKey } from '../ledger/ledger.util';
 import { ORDER_STATUS } from '../orders/orders.constants';
 import { OrdersRepository } from '../orders/orders.repository';
-import { DELIVERY_OUT_OF_STOCK_REASON, DELIVERY_OUTCOME, ISSUED_DELIVERY_LOST_MESSAGE } from './delivery.constants';
+import {
+  DELIVERY_OUT_OF_STOCK_REASON,
+  DELIVERY_OUTCOME,
+  ISSUED_DELIVERY_LOST_MESSAGE,
+} from './delivery.constants';
 import { DeliveryRepository } from './delivery.repository';
 import { buildOrderNotFoundMessage } from './delivery.util';
-import type { IDeliveryResult, IFulfilInput, IFulfilmentService, ILockedOrderRow } from './delivery.interfaces';
+import type {
+  IDeliveryResult,
+  IFulfilInput,
+  IFulfilmentService,
+  ILockedOrderRow,
+} from './delivery.interfaces';
 
 @Injectable()
 export class PoolFulfilmentService implements IFulfilmentService {
@@ -67,8 +76,17 @@ export class PoolFulfilmentService implements IFulfilmentService {
     // 0 строк здесь — сломанный инвариант с худшим режимом отказа: issued_deliveries записан,
     // orders.status отстал, и свипер пере-ставит уже выданный заказ в очередь
     if (order.status === ORDER_STATUS.PAID) {
-      this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
-      await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});
+      this.logger.event(LOG_EVENT.DELIVERY_STARTED, {
+        order_id: order.id,
+        generation: order.generation,
+      });
+      await this.ordersRepository.transition(
+        qr,
+        order.id,
+        ORDER_STATUS.PAID,
+        ORDER_STATUS.DELIVERING,
+        {},
+      );
     }
 
     const key = await this.reserveOrReuseKey(qr, order);
@@ -79,26 +97,43 @@ export class PoolFulfilmentService implements IFulfilmentService {
 
     const code = await this.issueDelivery(qr, order, key);
 
-    await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERED, {
-      deliveredAt: new Date(),
-    });
+    await this.ordersRepository.transition(
+      qr,
+      order.id,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.DELIVERED,
+      {
+        deliveredAt: new Date(),
+      },
+    );
 
     await this.ledgerService.postTxn(qr, {
       kind: LEDGER_TXN_KIND.DELIVERY_RECOGNIZED,
       idempotencyKey: buildDeliveryRecognizedKey(order.ext_id, order.generation),
       orderId: order.id,
-      legs: buildBalancedLegs(LEDGER_TXN_KIND.DELIVERY_RECOGNIZED, order.amount_minor, order.currency, {
-        orderId: order.id,
-      }),
+      legs: buildBalancedLegs(
+        LEDGER_TXN_KIND.DELIVERY_RECOGNIZED,
+        order.amount_minor,
+        order.currency,
+        {
+          orderId: order.id,
+        },
+      ),
     });
 
-    this.logger.event(LOG_EVENT.DELIVERY_COMPLETED, { order_id: order.id, generation: order.generation });
+    this.logger.event(LOG_EVENT.DELIVERY_COMPLETED, {
+      order_id: order.id,
+      generation: order.generation,
+    });
 
     return { outcome: DELIVERY_OUTCOME.DELIVERED, code };
   }
 
   // идемпотентные исходы для заказов, уже прошедших через доставку в предыдущей попытке
-  private async handleTerminalStatus(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryResult | null> {
+  private async handleTerminalStatus(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<IDeliveryResult | null> {
     if (order.status === ORDER_STATUS.DELIVERED) {
       const issued = await this.deliveryRepository.findIssuedDelivery(qr, order.id);
 
@@ -112,7 +147,10 @@ export class PoolFulfilmentService implements IFulfilmentService {
     return null;
   }
 
-  private async reserveOrReuseKey(qr: QueryRunner, order: ILockedOrderRow): Promise<IStockKeyRow | null> {
+  private async reserveOrReuseKey(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<IStockKeyRow | null> {
     const existing = await this.inventoryRepository.findReservedKey(qr, order.id);
 
     if (existing !== null) {
@@ -134,7 +172,10 @@ export class PoolFulfilmentService implements IFulfilmentService {
   // конкурентной транзакцией (FOR UPDATE SKIP LOCKED). Поэтому счётчик пересчитывается по факту,
   // а не обнуляется: во втором случае заказ честно out_of_stock именно сейчас, но ключи живы,
   // products.in_stock остаётся true, и повтор делает проход 3 sweeper'а.
-  private async recountToOutOfStock(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryResult> {
+  private async recountToOutOfStock(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<IDeliveryResult> {
     const available = await this.inventoryRepository.recountAvailable(qr, order.product_id);
 
     await this.inventoryRepository.syncProductInStock(qr, order.product_id);
@@ -147,16 +188,29 @@ export class PoolFulfilmentService implements IFulfilmentService {
       });
     }
 
-    await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.OUT_OF_STOCK, {
-      failureReason: DELIVERY_OUT_OF_STOCK_REASON,
-    });
+    await this.ordersRepository.transition(
+      qr,
+      order.id,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.OUT_OF_STOCK,
+      {
+        failureReason: DELIVERY_OUT_OF_STOCK_REASON,
+      },
+    );
 
-    this.logger.event(LOG_EVENT.DELIVERY_OUT_OF_STOCK, { order_id: order.id, generation: order.generation });
+    this.logger.event(LOG_EVENT.DELIVERY_OUT_OF_STOCK, {
+      order_id: order.id,
+      generation: order.generation,
+    });
 
     return { outcome: DELIVERY_OUTCOME.OUT_OF_STOCK, code: null };
   }
 
-  private async issueDelivery(qr: QueryRunner, order: ILockedOrderRow, key: IStockKeyRow): Promise<string> {
+  private async issueDelivery(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+    key: IStockKeyRow,
+  ): Promise<string> {
     const existingIssued = await this.deliveryRepository.findIssuedDelivery(qr, order.id);
 
     if (existingIssued !== null) {

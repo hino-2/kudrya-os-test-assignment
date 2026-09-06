@@ -36,13 +36,19 @@ export class UnitOfWorkService {
 
         const delayMs = TX_RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * TX_RETRY_JITTER_MS;
 
-        this.logger.event(LOG_EVENT.DB_SERIALIZATION_RETRY, { attempt, sqlstate: pgErrorCode(error) });
+        this.logger.event(LOG_EVENT.DB_SERIALIZATION_RETRY, {
+          attempt,
+          sqlstate: pgErrorCode(error),
+        });
         await sleep(delayMs);
       }
     }
   }
 
-  private async runOnce<T>(work: TransactionWork<T>, isolationLevel?: IUnitOfWorkOptions['isolationLevel']): Promise<T> {
+  private async runOnce<T>(
+    work: TransactionWork<T>,
+    isolationLevel?: IUnitOfWorkOptions['isolationLevel'],
+  ): Promise<T> {
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();

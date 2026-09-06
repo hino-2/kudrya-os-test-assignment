@@ -47,7 +47,11 @@ export class AdminController {
     @Param() params: RestockSkuParamDto,
     @Body() dto: RestockRequestDto,
   ): Promise<RestockResponseDto> {
-    const result = await this.service.restock({ sku: params.sku, codes: dto.codes, count: dto.count });
+    const result = await this.service.restock({
+      sku: params.sku,
+      codes: dto.codes,
+      count: dto.count,
+    });
 
     return {
       added: result.added,

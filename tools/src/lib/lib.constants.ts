@@ -26,6 +26,8 @@ export const MISSING_ARG_MESSAGE = 'Обязательный аргумент к
 
 export const INVALID_INT_ARG_MESSAGE = 'Ожидалось целое число в аргументе командной строки';
 
+export const MISSING_ARG_VALUE_MESSAGE = 'Аргумент командной строки задан без значения';
+
 export const HTTP_METHOD = {
   GET: 'GET',
   POST: 'POST',
@@ -42,6 +44,26 @@ export const CHECK_STATUS = {
   FAIL: 'FAIL',
   SKIP: 'SKIP',
 } as const;
+
+export const CHECK_VERDICT = {
+  PASS: 'PASS',
+  FAIL: 'FAIL',
+  INCONCLUSIVE: 'INCONCLUSIVE',
+} as const;
+
+// INCONCLUSIVE отделён от FAIL отдельным кодом: прогон ничего не опроверг, но и не проверил
+// часть инвариантов (например, race --no-db пропускает все девять проверок по БД),
+// поэтому читать его как успех нельзя
+export const EXIT_CODE = {
+  PASS: 0,
+  FAIL: 1,
+  INCONCLUSIVE: 2,
+} as const;
+
+export const VERDICT_LABEL = 'VERDICT';
+
+export const INCONCLUSIVE_HINT =
+  'часть проверок пропущена, прогон не доказывает инварианты целиком';
 
 export const TABLE_COLUMN_GAP = '  ';
 

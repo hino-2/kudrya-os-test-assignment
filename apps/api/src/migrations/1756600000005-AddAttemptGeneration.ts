@@ -6,7 +6,9 @@ export class AddAttemptGeneration1756600000005 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // DEFAULT намеренно нет: каждая вставка обязана назвать поколение явно, иначе пропущенный
     // параметр упадёт ошибкой, а не запишет молча 0 (и не склеит попытки разных поколений)
-    await queryRunner.query(`ALTER TABLE delivery_attempts ADD COLUMN delivery_generation INTEGER NULL;`);
+    await queryRunner.query(
+      `ALTER TABLE delivery_attempts ADD COLUMN delivery_generation INTEGER NULL;`,
+    );
 
     // Бэкфилл: поколение уже записано внутри request_id
     // (buildSupplierRequestId -> 'req_<ext>-g<gen>-<S><n>'). Шаблон обязательно якорится на
@@ -24,12 +26,16 @@ export class AddAttemptGeneration1756600000005 implements MigrationInterface {
       WHERE o.id = a.order_id;
     `);
 
-    await queryRunner.query(`ALTER TABLE delivery_attempts ALTER COLUMN delivery_generation SET NOT NULL;`);
+    await queryRunner.query(
+      `ALTER TABLE delivery_attempts ALTER COLUMN delivery_generation SET NOT NULL;`,
+    );
 
     // attempt_no снова начинается с 1 в каждом поколении — без поколения в ключе повторная
     // выдача после restock/redeliver падала бы на 23505. request_id менять не нужно: он уже
     // несёт 'g<gen>', поэтому delivery_attempts_request_uq остаётся уникальным.
-    await queryRunner.query(`ALTER TABLE delivery_attempts DROP CONSTRAINT delivery_attempts_slot_uq;`);
+    await queryRunner.query(
+      `ALTER TABLE delivery_attempts DROP CONSTRAINT delivery_attempts_slot_uq;`,
+    );
 
     // Этот констрейнт не является целью ON CONFLICT (её роль играет частичный
     // delivery_attempts_open_uq), поэтому ошибка планировщика с повторным выбором занятого
@@ -42,7 +48,9 @@ export class AddAttemptGeneration1756600000005 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE delivery_attempts DROP CONSTRAINT delivery_attempts_slot_uq;`);
+    await queryRunner.query(
+      `ALTER TABLE delivery_attempts DROP CONSTRAINT delivery_attempts_slot_uq;`,
+    );
 
     // Возврат узкого констрейнта упадёт, если в таблице есть попытки нескольких поколений
     // с одним слотом (order_id, supplier_code, attempt_no). Это правильное поведение:

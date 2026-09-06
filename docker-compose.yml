@@ -20,7 +20,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: store-core:local
-    entrypoint: ['/bin/sh', 'apps/api/docker-entrypoint.sh']
+    # запускается напрямую по shebang: скрипт исполняемый и рассчитан на /bin/sh образа
+    entrypoint: ['/workspace/apps/api/docker-entrypoint.sh']
     ports:
       - '3000:3000'
     environment:

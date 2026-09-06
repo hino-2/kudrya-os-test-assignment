@@ -22,10 +22,10 @@ import { SupplierFulfilmentService } from './supplier-fulfilment.service';
     SupplierFulfilmentService,
     {
       provide: DELIVERY_FULFILMENT_SERVICES,
-      useFactory: (pool: PoolFulfilmentService, supplier: SupplierFulfilmentService): readonly IFulfilmentService[] => [
-        pool,
-        supplier,
-      ],
+      useFactory: (
+        pool: PoolFulfilmentService,
+        supplier: SupplierFulfilmentService,
+      ): readonly IFulfilmentService[] => [pool, supplier],
       inject: [PoolFulfilmentService, SupplierFulfilmentService],
     },
     DeliveryService,

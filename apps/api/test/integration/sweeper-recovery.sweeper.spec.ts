@@ -72,7 +72,8 @@ const INSERT_SUPPLIER_PRODUCT_SQL = `
 
 const INSERT_SKU_STOCK_SQL = 'INSERT INTO sku_stock (product_id, available_count) VALUES ($1, $2)';
 
-const SET_AVAILABLE_COUNT_SQL = 'UPDATE sku_stock SET available_count = $2, updated_at = now() WHERE product_id = $1';
+const SET_AVAILABLE_COUNT_SQL =
+  'UPDATE sku_stock SET available_count = $2, updated_at = now() WHERE product_id = $1';
 
 const INSERT_ORDER_SQL = `
   INSERT INTO orders (ext_id, product_id, sku, unit_price_minor, total_minor, currency, status,
@@ -142,7 +143,9 @@ async function postJson(path: string, payload: unknown): Promise<{ status: numbe
 }
 
 async function insertPoolProduct(): Promise<number> {
-  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_POOL_PRODUCT_SQL, [`SW-POOL-${uniqueId()}`]);
+  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_POOL_PRODUCT_SQL, [
+    `SW-POOL-${uniqueId()}`,
+  ]);
 
   return rows[0].id;
 }
@@ -168,15 +171,18 @@ interface IInsertOrderOptions {
 
 async function insertOrder(options: IInsertOrderOptions): Promise<IOrderRow> {
   const extId = `ord_sweeper_${uniqueId()}`;
-  const rows = await harness.dataSource.query<Array<{ id: number; ext_id: string }>>(INSERT_ORDER_SQL, [
-    extId,
-    options.productId,
-    `SW-${uniqueId()}`,
-    options.status,
-    options.deliveryGeneration ?? 0,
-    options.paidAt ?? null,
-    options.updatedAtAgeSeconds ?? 0,
-  ]);
+  const rows = await harness.dataSource.query<Array<{ id: number; ext_id: string }>>(
+    INSERT_ORDER_SQL,
+    [
+      extId,
+      options.productId,
+      `SW-${uniqueId()}`,
+      options.status,
+      options.deliveryGeneration ?? 0,
+      options.paidAt ?? null,
+      options.updatedAtAgeSeconds ?? 0,
+    ],
+  );
 
   return fetchOrder(rows[0].ext_id);
 }
@@ -221,21 +227,34 @@ async function insertAttempt(options: IInsertAttemptOptions): Promise<number> {
 }
 
 async function fetchAttempt(id: number): Promise<IDeliveryAttemptRow> {
-  const rows = await harness.dataSource.query<IDeliveryAttemptRow[]>(SELECT_DELIVERY_ATTEMPT_SQL, [id]);
+  const rows = await harness.dataSource.query<IDeliveryAttemptRow[]>(SELECT_DELIVERY_ATTEMPT_SQL, [
+    id,
+  ]);
 
   return rows[0];
 }
 
-async function insertOrphanEvent(orderExtId: string, ageSeconds: number, amountMinor = 1000): Promise<string> {
+async function insertOrphanEvent(
+  orderExtId: string,
+  ageSeconds: number,
+  amountMinor = 1000,
+): Promise<string> {
   const eventId = `evt-${uniqueId()}`;
 
-  await harness.dataSource.query(INSERT_ORPHAN_EVENT_SQL, [eventId, orderExtId, amountMinor, ageSeconds]);
+  await harness.dataSource.query(INSERT_ORPHAN_EVENT_SQL, [
+    eventId,
+    orderExtId,
+    amountMinor,
+    ageSeconds,
+  ]);
 
   return eventId;
 }
 
 async function fetchPaymentEvent(eventId: string): Promise<IPaymentEventRow> {
-  const rows = await harness.dataSource.query<IPaymentEventRow[]>(SELECT_PAYMENT_EVENT_SQL, [eventId]);
+  const rows = await harness.dataSource.query<IPaymentEventRow[]>(SELECT_PAYMENT_EVENT_SQL, [
+    eventId,
+  ]);
 
   return rows[0];
 }
@@ -311,7 +330,10 @@ describe('sweeper (recovery passes)', () => {
     });
     const dedupeKey = buildDeliverOrderDedupeKey(order.ext_id);
 
-    await enqueue({ dedupeKey, payload: { orderId: order.id, ext_id: order.ext_id, generation: 0 } });
+    await enqueue({
+      dedupeKey,
+      payload: { orderId: order.id, ext_id: order.ext_id, generation: 0 },
+    });
     await harness.dataSource.query(MARK_JOB_DEAD_SQL, [dedupeKey]);
 
     const result = await sweeper.runOnce();
@@ -332,7 +354,12 @@ describe('sweeper (recovery passes)', () => {
   it('pass 2: leaves a freshly updated paid order alone', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertPoolProduct();
-    const order = await insertOrder({ productId, status: ORDER_STATUS.PAID, paidAt: new Date(), updatedAtAgeSeconds: 0 });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.PAID,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 0,
+    });
 
     const result = await sweeper.runOnce();
 
@@ -477,7 +504,11 @@ describe('sweeper (recovery passes)', () => {
   it('pass 5a/5b: demotes a stale in_flight attempt to unknown and immediately redrives it', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
     const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.IN_FLIGHT,
@@ -508,7 +539,11 @@ describe('sweeper (recovery passes)', () => {
   it('pass 5b: redrives an already-unknown attempt whose resolve time has arrived and advances it', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
     const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.UNKNOWN,
@@ -538,7 +573,11 @@ describe('sweeper (recovery passes)', () => {
     const sweeper = harness.get(SweeperService);
     const config = harness.get(AppConfigService);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
     const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.UNKNOWN,
@@ -593,7 +632,11 @@ describe('sweeper (recovery passes)', () => {
   it('pass 5a: leaves a stale in_flight attempt alone while a live delivery job owns it', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
     const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.IN_FLIGHT,
@@ -615,8 +658,16 @@ describe('sweeper (recovery passes)', () => {
   it('pass 5a: leaves a fresh in_flight attempt alone', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
-    const attemptId = await insertAttempt({ orderId: order.id, state: ATTEMPT_STATE.IN_FLIGHT, startedAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
+    const attemptId = await insertAttempt({
+      orderId: order.id,
+      state: ATTEMPT_STATE.IN_FLIGHT,
+      startedAt: new Date(),
+    });
 
     const result = await sweeper.runOnce();
 
@@ -636,7 +687,11 @@ describe('sweeper (recovery passes)', () => {
     const unitOfWork = harness.get(UnitOfWorkService);
     const repository = harness.get(DeliveryAttemptRepository);
     const productId = await insertSupplierProduct(5);
-    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+    });
     const attemptId = await insertAttempt({
       orderId: order.id,
       state: ATTEMPT_STATE.UNKNOWN,
@@ -693,7 +748,10 @@ describe('sweeper (recovery passes)', () => {
   it('pass 6a: pays an order whose webhook arrived before it existed', async () => {
     const sweeper = harness.get(SweeperService);
     const sku = `SW-CRIT3-${uniqueId()}`;
-    const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_SUPPLIER_PRODUCT_SQL, [sku]);
+    const rows = await harness.dataSource.query<Array<{ id: number }>>(
+      INSERT_SUPPLIER_PRODUCT_SQL,
+      [sku],
+    );
 
     await harness.dataSource.query(INSERT_SKU_STOCK_SQL, [rows[0].id, 5]);
 

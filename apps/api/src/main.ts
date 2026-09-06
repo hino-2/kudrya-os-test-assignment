@@ -6,28 +6,51 @@ import { AppModule } from './app.module';
 import { AppConfigService } from './common/config/app-config.service';
 import { BIND_HOST } from './common/http/http.constants';
 import { JsonLogger } from './common/logging/json-logger';
-import { FALLBACK_LOGGER_OPTIONS, JSON_LOGGER, LOG_EVENT } from './common/logging/logging.constants';
+import {
+  FALLBACK_LOGGER_OPTIONS,
+  JSON_LOGGER,
+  LOG_EVENT,
+} from './common/logging/logging.constants';
 
 function registerProcessGuards(logger: JsonLogger): void {
   process.on('uncaughtException', (error: Error) => {
-    logger.write({ level: 'error', event: LOG_EVENT.APP_UNCAUGHT_EXCEPTION, ctx: 'Process', err: error });
+    logger.write({
+      level: 'error',
+      event: LOG_EVENT.APP_UNCAUGHT_EXCEPTION,
+      ctx: 'Process',
+      err: error,
+    });
     process.exit(1);
   });
 
   process.on('unhandledRejection', (reason: unknown) => {
-    logger.write({ level: 'error', event: LOG_EVENT.APP_UNHANDLED_REJECTION, ctx: 'Process', err: reason });
+    logger.write({
+      level: 'error',
+      event: LOG_EVENT.APP_UNHANDLED_REJECTION,
+      ctx: 'Process',
+      err: reason,
+    });
   });
 }
 
 function handleBootFailure(error: unknown): never {
   const fallbackLogger = new JsonLogger(FALLBACK_LOGGER_OPTIONS);
 
-  fallbackLogger.write({ level: 'error', event: LOG_EVENT.APP_BOOT_FAILED, ctx: 'Bootstrap', err: error });
+  fallbackLogger.write({
+    level: 'error',
+    event: LOG_EVENT.APP_BOOT_FAILED,
+    ctx: 'Bootstrap',
+    err: error,
+  });
   process.exit(1);
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, abortOnError: false, autoFlushLogs: false });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    abortOnError: false,
+    autoFlushLogs: false,
+  });
   const logger = app.get<JsonLogger>(JSON_LOGGER);
 
   app.useLogger(logger);

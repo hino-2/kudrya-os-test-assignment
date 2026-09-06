@@ -13,7 +13,8 @@ import { JSON_LOGGER } from './logging.constants';
     CorrelationStore,
     {
       provide: JSON_LOGGER,
-      useFactory: (config: AppConfigService, store: CorrelationStore) => new JsonLogger(config.logging, store),
+      useFactory: (config: AppConfigService, store: CorrelationStore) =>
+        new JsonLogger(config.logging, store),
       inject: [AppConfigService, CorrelationStore],
     },
     AppLoggerService,

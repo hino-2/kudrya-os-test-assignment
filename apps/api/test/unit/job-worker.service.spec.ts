@@ -9,7 +9,11 @@ import { JsonLogger } from '../../src/common/logging/json-logger';
 import { JobHandlerRegistry } from '../../src/jobs/job-handler.registry';
 import { JobQueueService } from '../../src/jobs/job-queue.service';
 import { JobWorkerService } from '../../src/jobs/job-worker.service';
-import { JOB_KIND, JOB_STATE, WORKER_SHUTDOWN_DRAIN_TIMEOUT_MS } from '../../src/jobs/jobs.constants';
+import {
+  JOB_KIND,
+  JOB_STATE,
+  WORKER_SHUTDOWN_DRAIN_TIMEOUT_MS,
+} from '../../src/jobs/jobs.constants';
 import { LOG_EVENT } from '../../src/common/logging/logging.constants';
 import type { IJobRow } from '../../src/jobs/jobs.interfaces';
 
@@ -59,7 +63,14 @@ function buildService(claim: () => Promise<IJobRow[]>): JobWorkerService {
   const registry = {} as unknown as JobHandlerRegistry;
   const schedulerRegistry = { deleteInterval: vi.fn() } as unknown as SchedulerRegistry;
 
-  return new JobWorkerService(buildConfig(), unitOfWork, queue, registry, buildLogger(), schedulerRegistry);
+  return new JobWorkerService(
+    buildConfig(),
+    unitOfWork,
+    queue,
+    registry,
+    buildLogger(),
+    schedulerRegistry,
+  );
 }
 
 describe('JobWorkerService onModuleDestroy draining an in-flight tick', () => {
@@ -134,10 +145,13 @@ describe('JobWorkerService settle when the job was claimed away', () => {
       created_at: new Date(),
       updated_at: new Date(),
       finished_at: null,
-    } as unknown as IJobRow;
+    };
   }
 
-  function buildWorker(queueOverrides: Partial<JobQueueService>, events: string[]): JobWorkerService {
+  function buildWorker(
+    queueOverrides: Partial<JobQueueService>,
+    events: string[],
+  ): JobWorkerService {
     const job = buildJob();
     const queue = {
       requeueStale: () => Promise.resolve(0),
@@ -157,14 +171,21 @@ describe('JobWorkerService settle when the job was claimed away', () => {
         format: 'json',
         includeStack: false,
         sink: (line: string) => {
-          events.push(JSON.parse(line).event as string);
+          events.push((JSON.parse(line) as { event: string }).event);
         },
       }),
       new CorrelationStore(),
       'JobWorkerService',
     );
 
-    return new JobWorkerService(buildConfig(), unitOfWork, queue, registry, logger, schedulerRegistry);
+    return new JobWorkerService(
+      buildConfig(),
+      unitOfWork,
+      queue,
+      registry,
+      logger,
+      schedulerRegistry,
+    );
   }
 
   it('logs job.ownership_lost instead of job.succeeded when complete matches no row', async () => {

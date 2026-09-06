@@ -21,7 +21,10 @@ function lowerEdge(attempt: number, baseMs: number, maxMs: number): number {
 
 describe('computeBackoffMs', () => {
   it('returns the exact lower edge for attempt=1 with random=0', () => {
-    const result = computeBackoffMs(1, options(() => 0));
+    const result = computeBackoffMs(
+      1,
+      options(() => 0),
+    );
 
     expect(result).toBeGreaterThanOrEqual(BACKOFF_MIN_MS);
     expect(result).toBe(lowerEdge(1, BASE_MS, MAX_MS));
@@ -29,8 +32,14 @@ describe('computeBackoffMs', () => {
 
   it('stays within [BACKOFF_MIN_MS, maxMs] for attempts 1..15 at random extremes', () => {
     for (let attempt = 1; attempt <= 15; attempt++) {
-      const low = computeBackoffMs(attempt, options(() => 0));
-      const high = computeBackoffMs(attempt, options(() => 0.9999));
+      const low = computeBackoffMs(
+        attempt,
+        options(() => 0),
+      );
+      const high = computeBackoffMs(
+        attempt,
+        options(() => 0.9999),
+      );
 
       expect(low).toBeGreaterThanOrEqual(BACKOFF_MIN_MS);
       expect(low).toBeLessThanOrEqual(MAX_MS);
@@ -52,7 +61,10 @@ describe('computeBackoffMs', () => {
   });
 
   it('saturates at maxMs for a large attempt near the upper random bound', () => {
-    const result = computeBackoffMs(12, options(() => 0.999999));
+    const result = computeBackoffMs(
+      12,
+      options(() => 0.999999),
+    );
 
     expect(result).toBe(MAX_MS);
   });
@@ -66,7 +78,10 @@ describe('computeBackoffMs', () => {
   });
 
   it('does not overflow to Infinity for a huge attempt', () => {
-    const result = computeBackoffMs(10000, options(() => 0.9999));
+    const result = computeBackoffMs(
+      10000,
+      options(() => 0.9999),
+    );
 
     expect(Number.isFinite(result)).toBe(true);
     expect(result).toBeLessThanOrEqual(MAX_MS);
@@ -83,7 +98,11 @@ describe('computeBackoffMs', () => {
 describe('computeNextRunAt', () => {
   it('returns a Date strictly after now and at most now + maxMs', () => {
     const now = new Date();
-    const result = computeNextRunAt(now, 3, options(() => 0.5));
+    const result = computeNextRunAt(
+      now,
+      3,
+      options(() => 0.5),
+    );
 
     expect(result.getTime()).toBeGreaterThan(now.getTime());
     expect(result.getTime()).toBeLessThanOrEqual(now.getTime() + MAX_MS);

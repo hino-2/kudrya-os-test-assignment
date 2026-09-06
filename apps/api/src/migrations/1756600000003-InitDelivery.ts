@@ -48,7 +48,9 @@ export class InitDelivery1756600000003 implements MigrationInterface {
         ON delivery_attempts (updated_at) WHERE state = 'abandoned_unknown';
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_delivery_attempts_order ON delivery_attempts (order_id, id);`);
+    await queryRunner.query(
+      `CREATE INDEX idx_delivery_attempts_order ON delivery_attempts (order_id, id);`,
+    );
 
     await queryRunner.query(`
       CREATE TABLE issued_deliveries (
@@ -82,7 +84,9 @@ export class InitDelivery1756600000003 implements MigrationInterface {
         ON issued_deliveries (delivery_attempt_id) WHERE delivery_attempt_id IS NOT NULL;
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_issued_deliveries_at ON issued_deliveries (delivered_at DESC);`);
+    await queryRunner.query(
+      `CREATE INDEX idx_issued_deliveries_at ON issued_deliveries (delivered_at DESC);`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

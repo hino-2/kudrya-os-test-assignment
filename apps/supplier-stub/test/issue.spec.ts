@@ -5,7 +5,12 @@ import * as path from 'node:path';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { CODE_ALPHABET, CODE_GROUP_COUNT, CODE_GROUP_LENGTH, CODE_SEPARATOR } from '../src/config/stub-config.constants';
+import {
+  CODE_ALPHABET,
+  CODE_GROUP_COUNT,
+  CODE_GROUP_LENGTH,
+  CODE_SEPARATOR,
+} from '../src/config/stub-config.constants';
 import { SCENARIO_MODE } from '../src/scenario/scenario.constants';
 import { startStub } from './helpers/app.harness';
 import type { IStubHarness } from './helpers/harness.interfaces';
@@ -37,7 +42,9 @@ interface IErrorBody {
 }
 
 const codeGroup = `[${CODE_ALPHABET}]{${CODE_GROUP_LENGTH}}`;
-const CODE_REGEX = new RegExp(`^${codeGroup}(?:\\${CODE_SEPARATOR}${codeGroup}){${CODE_GROUP_COUNT - 1}}$`);
+const CODE_REGEX = new RegExp(
+  `^${codeGroup}(?:\\${CODE_SEPARATOR}${codeGroup}){${CODE_GROUP_COUNT - 1}}$`,
+);
 
 const TEST_ENV = {
   SUPPLIER_ID: 'A',
@@ -59,7 +66,11 @@ function newRequestId(): string {
   return randomUUID();
 }
 
-async function postJson<T>(baseUrl: string, path: string, payload: unknown): Promise<IHttpResult<T>> {
+async function postJson<T>(
+  baseUrl: string,
+  path: string,
+  payload: unknown,
+): Promise<IHttpResult<T>> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -70,7 +81,11 @@ async function postJson<T>(baseUrl: string, path: string, payload: unknown): Pro
   return { status: response.status, body: (text.length > 0 ? JSON.parse(text) : {}) as T };
 }
 
-async function postRaw(baseUrl: string, path: string, payload: unknown): Promise<{ status: number; text: string }> {
+async function postRaw(
+  baseUrl: string,
+  path: string,
+  payload: unknown,
+): Promise<{ status: number; text: string }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -149,7 +164,9 @@ describe('supplier-stub /issue', () => {
     const payload = { request_id: requestId, sku: 'KEY-CS2-PRIME', order_id: 'order-3' };
 
     const results = await Promise.all(
-      Array.from({ length: 5 }, () => postJson<IIssueResultBody>(harness.baseUrl, '/issue', payload)),
+      Array.from({ length: 5 }, () =>
+        postJson<IIssueResultBody>(harness.baseUrl, '/issue', payload),
+      ),
     );
 
     const codes = new Set(results.map((r) => r.body.code));
@@ -161,7 +178,11 @@ describe('supplier-stub /issue', () => {
   it('looks up a known request_id and 404s on an unknown one', async () => {
     const requestId = newRequestId();
 
-    await postJson(harness.baseUrl, '/issue', { request_id: requestId, sku: 'KEY-EFT', order_id: 'order-4' });
+    await postJson(harness.baseUrl, '/issue', {
+      request_id: requestId,
+      sku: 'KEY-EFT',
+      order_id: 'order-4',
+    });
 
     const known = await getJson<IIssueLookupResultBody>(harness.baseUrl, `/issue/${requestId}`);
 
@@ -207,7 +228,11 @@ describe('supplier-stub /issue', () => {
 
     const requestId = newRequestId();
 
-    await issueExpectNoResponse(harness.baseUrl, { request_id: requestId, sku: 'KEY-EFT', order_id: 'order-7' });
+    await issueExpectNoResponse(harness.baseUrl, {
+      request_id: requestId,
+      sku: 'KEY-EFT',
+      order_id: 'order-7',
+    });
 
     const stored = await getJson<IIssueLookupResultBody>(harness.baseUrl, `/issue/${requestId}`);
 
@@ -240,7 +265,7 @@ describe('supplier-stub /issue', () => {
     });
 
     expect(result.status).toBe(500);
-    expect(() => JSON.parse(result.text)).toThrow();
+    expect(() => JSON.parse(result.text) as unknown).toThrow();
   });
 
   it('returns 400 in bad_request mode', async () => {

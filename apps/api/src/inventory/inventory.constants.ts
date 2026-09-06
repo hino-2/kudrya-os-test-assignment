@@ -4,7 +4,8 @@ export const STOCK_KEY_STATUS = {
   ISSUED: 'issued',
 } as const;
 
-export const INVENTORY_TRANSACTION_REQUIRED_MESSAGE = 'Операция с остатками требует открытой транзакции';
+export const INVENTORY_TRANSACTION_REQUIRED_MESSAGE =
+  'Операция с остатками требует открытой транзакции';
 
 export const RESERVE_KEY_SQL = `
   UPDATE stock_keys k

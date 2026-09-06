@@ -30,7 +30,7 @@ export async function startApi(envOverrides?: Record<string, string>): Promise<I
 
   await app.listen(0, TEST_HOST);
 
-  const server: Server = app.getHttpServer();
+  const server = app.getHttpServer() as Server;
   const port = resolvePort(server);
   const dataSource = app.get(DataSource);
 

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { IReadinessResponse } from '../../src/common/http/health.interfaces';
-import { READINESS_COMPONENT, READINESS_DEGRADED_STATUS, READINESS_OK_STATUS } from '../../src/common/http/http.constants';
+import {
+  READINESS_COMPONENT,
+  READINESS_DEGRADED_STATUS,
+  READINESS_OK_STATUS,
+} from '../../src/common/http/http.constants';
 import { ReadinessRegistry } from '../../src/common/http/readiness.registry';
 import { startApi } from '../helpers/app.harness';
 import type { IApiHarness } from '../helpers/harness.interfaces';

@@ -20,12 +20,20 @@ function isAbsent(value: unknown, spec: IEnvVarSpec): boolean {
   return value === '' && spec.allowEmpty !== true;
 }
 
-function coerceInt(name: string, value: string, spec: IEnvVarSpec, issues: IEnvIssue[]): number | undefined {
+function coerceInt(
+  name: string,
+  value: string,
+  spec: IEnvVarSpec,
+  issues: IEnvIssue[],
+): number | undefined {
   const min = spec.min ?? -Infinity;
   const max = spec.max ?? Infinity;
 
   if (!INT_PATTERN.test(value)) {
-    issues.push({ name, reason: `ожидалось целое число в диапазоне ${min}..${max}, получено "${value}"` });
+    issues.push({
+      name,
+      reason: `ожидалось целое число в диапазоне ${min}..${max}, получено "${value}"`,
+    });
 
     return undefined;
   }
@@ -33,7 +41,10 @@ function coerceInt(name: string, value: string, spec: IEnvVarSpec, issues: IEnvI
   const parsed = Number(value);
 
   if (parsed < min || parsed > max) {
-    issues.push({ name, reason: `ожидалось целое число в диапазоне ${min}..${max}, получено "${value}"` });
+    issues.push({
+      name,
+      reason: `ожидалось целое число в диапазоне ${min}..${max}, получено "${value}"`,
+    });
 
     return undefined;
   }
@@ -57,7 +68,12 @@ function coerceBool(name: string, value: string, issues: IEnvIssue[]): boolean |
   return undefined;
 }
 
-function coerceEnum(name: string, value: string, spec: IEnvVarSpec, issues: IEnvIssue[]): string | undefined {
+function coerceEnum(
+  name: string,
+  value: string,
+  spec: IEnvVarSpec,
+  issues: IEnvIssue[],
+): string | undefined {
   const values = spec.values ?? [];
 
   if (values.includes(value)) {
@@ -69,21 +85,32 @@ function coerceEnum(name: string, value: string, spec: IEnvVarSpec, issues: IEnv
   return undefined;
 }
 
-function coerceUrl(name: string, value: string, spec: IEnvVarSpec, issues: IEnvIssue[]): string | undefined {
+function coerceUrl(
+  name: string,
+  value: string,
+  spec: IEnvVarSpec,
+  issues: IEnvIssue[],
+): string | undefined {
   const protocols = spec.protocols ?? [];
 
   try {
     const parsed = new URL(value);
 
     if (protocols.length > 0 && !protocols.includes(parsed.protocol)) {
-      issues.push({ name, reason: `ожидался URL со схемой ${protocols.join('/')}, получено "${value}"` });
+      issues.push({
+        name,
+        reason: `ожидался URL со схемой ${protocols.join('/')}, получено "${value}"`,
+      });
 
       return undefined;
     }
 
     return value;
   } catch {
-    issues.push({ name, reason: `ожидался URL со схемой ${protocols.join('/')}, получено "${value}"` });
+    issues.push({
+      name,
+      reason: `ожидался URL со схемой ${protocols.join('/')}, получено "${value}"`,
+    });
 
     return undefined;
   }

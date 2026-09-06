@@ -65,13 +65,21 @@ export const RACE_JITTER_MAX_MS = 5000;
 
 export const RACE_PRNG_SEED = 0x5eedface;
 
-export const MISSING_ORDER_OR_SKU_MESSAGE = 'Нужно указать либо --order (существующий ext_id), либо --sku (создать новый заказ)';
+export const MISSING_ORDER_OR_SKU_MESSAGE =
+  'Нужно указать либо --order (существующий ext_id), либо --sku (создать новый заказ)';
 
 export const ORDER_CREATE_FAILED_MESSAGE = 'Не удалось создать заказ через POST /orders';
 
 export const ORDER_LOOKUP_FAILED_MESSAGE = 'Не удалось получить заказ через GET /orders/:orderId';
 
-export const ORDER_NOT_DELIVERED_MESSAGE = 'Заказ не перешёл в терминальный статус доставки за отведённое время';
+export const ORDER_NOT_DELIVERED_MESSAGE =
+  'Заказ не перешёл в терминальный статус доставки за отведённое время';
+
+export const STUB_CONTROL_FAILED_MESSAGE =
+  'Не удалось управлять заглушкой поставщика A: запустите её или передайте --no-stub-control (иначе гонка пойдёт против режима normal со случайными отказами)';
+
+export const STUB_RESTORE_FAILED_MESSAGE =
+  'Внимание: не удалось вернуть заглушку поставщика A в режим normal (вердикт прогона это не меняет):';
 
 export const SELECT_ORDER_ID_BY_EXT_ID_SQL = 'SELECT id FROM orders WHERE ext_id = $1';
 
@@ -81,7 +89,8 @@ export const SELECT_FULFILLMENT_MODE_BY_ORDER_ID_SQL = `
   WHERE o.id = $1
 `;
 
-export const COUNT_PAYMENT_EVENTS_BY_ORDER_SQL = 'SELECT count(*)::int AS count FROM payment_events WHERE order_ext_id = $1';
+export const COUNT_PAYMENT_EVENTS_BY_ORDER_SQL =
+  'SELECT count(*)::int AS count FROM payment_events WHERE order_ext_id = $1';
 
 export const COUNT_APPLIED_PAYMENT_EVENTS_SQL =
   "SELECT count(*)::int AS count FROM payment_events WHERE order_ext_id = $1 AND state = 'applied'";
@@ -91,23 +100,29 @@ export const COUNT_UNEXPECTED_PAYMENT_EVENTS_SQL = `
   WHERE order_ext_id = $1 AND state NOT IN ('applied', 'ignored_already_paid', 'ignored_stale')
 `;
 
-export const COUNT_DELIVER_ORDER_JOBS_SQL = "SELECT count(*)::int AS count FROM jobs WHERE kind = 'deliver_order' AND dedupe_key = $1";
+export const COUNT_DELIVER_ORDER_JOBS_SQL =
+  "SELECT count(*)::int AS count FROM jobs WHERE kind = 'deliver_order' AND dedupe_key = $1";
 
 export const SELECT_DELIVER_ORDER_JOB_STATE_SQL =
   "SELECT state FROM jobs WHERE kind = 'deliver_order' AND dedupe_key = $1 ORDER BY id DESC LIMIT 1";
 
-export const COUNT_ISSUED_DELIVERIES_BY_ORDER_ID_SQL = 'SELECT count(*)::int AS count FROM issued_deliveries WHERE order_id = $1';
+export const COUNT_ISSUED_DELIVERIES_BY_ORDER_ID_SQL =
+  'SELECT count(*)::int AS count FROM issued_deliveries WHERE order_id = $1';
 
-export const COUNT_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL = 'SELECT count(*)::int AS count FROM delivery_attempts WHERE order_id = $1';
+export const COUNT_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL =
+  'SELECT count(*)::int AS count FROM delivery_attempts WHERE order_id = $1';
 
 export const COUNT_SUCCEEDED_DELIVERY_ATTEMPTS_BY_ORDER_ID_SQL =
   "SELECT count(*)::int AS count FROM delivery_attempts WHERE order_id = $1 AND state = 'succeeded'";
 
-export const COUNT_LEDGER_TXNS_BY_ORDER_ID_SQL = 'SELECT count(*)::int AS count FROM ledger_txns WHERE order_id = $1';
+export const COUNT_LEDGER_TXNS_BY_ORDER_ID_SQL =
+  'SELECT count(*)::int AS count FROM ledger_txns WHERE order_id = $1';
 
-export const COUNT_LEDGER_ENTRIES_BY_ORDER_ID_SQL = 'SELECT count(*)::int AS count FROM ledger_entries WHERE order_id = $1';
+export const COUNT_LEDGER_ENTRIES_BY_ORDER_ID_SQL =
+  'SELECT count(*)::int AS count FROM ledger_entries WHERE order_id = $1';
 
-export const SUM_SIGNED_MINOR_BY_ORDER_ID_SQL = 'SELECT COALESCE(sum(signed_minor), 0)::bigint AS sum FROM ledger_entries WHERE order_id = $1';
+export const SUM_SIGNED_MINOR_BY_ORDER_ID_SQL =
+  'SELECT COALESCE(sum(signed_minor), 0)::bigint AS sum FROM ledger_entries WHERE order_id = $1';
 
 export const CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL = `
   SELECT count(*)::int AS count, COALESCE(sum(amount_minor), 0)::bigint AS sum
@@ -115,7 +130,8 @@ export const CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL = `
   WHERE order_id = $1 AND account = 'cash' AND direction = 'debit'
 `;
 
-export const COUNT_STOCK_KEYS_BY_ORDER_ID_SQL = 'SELECT count(*)::int AS count FROM stock_keys WHERE order_id = $1';
+export const COUNT_STOCK_KEYS_BY_ORDER_ID_SQL =
+  'SELECT count(*)::int AS count FROM stock_keys WHERE order_id = $1';
 
 export const HELP_TEXT = `
 Использование: npm run race -- (--order <ext_id> | --sku <sku>) [опции]

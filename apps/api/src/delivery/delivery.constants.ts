@@ -31,31 +31,40 @@ export const SETTLE_VIA = {
 // error_reason попытки, которую поставщик на resolve-шаге отрицает сам (404 на чтении)
 export const DELIVERY_LOOKUP_NOT_ISSUED_REASON = 'lookup_not_found';
 
-export const DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE = 'Состояние попытки изменилось во время дозвона к поставщику — требуется повтор задачи';
+export const DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE =
+  'Состояние попытки изменилось во время дозвона к поставщику — требуется повтор задачи';
 
-export const SUPPLIER_JOB_LAST_ATTEMPT_MESSAGE_TEMPLATE = 'Последняя попытка задачи выдачи через поставщика исчерпана без терминального исхода: %s';
+export const SUPPLIER_JOB_LAST_ATTEMPT_MESSAGE_TEMPLATE =
+  'Последняя попытка задачи выдачи через поставщика исчерпана без терминального исхода: %s';
 
-export const DELIVERY_TRANSACTION_REQUIRED_MESSAGE = 'Операция доставки требует открытой транзакции';
+export const DELIVERY_TRANSACTION_REQUIRED_MESSAGE =
+  'Операция доставки требует открытой транзакции';
 
 export const ISSUED_DELIVERY_LOST_MESSAGE = 'Строка выданного товара потеряна после вставки';
 
 export const DELIVERY_ATTEMPT_LOST_MESSAGE = 'Строка попытки выдачи потеряна после вставки';
 
-export const SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE = 'Бюджет времени на выдачу через поставщика в рамках задачи исчерпан';
+export const SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE =
+  'Бюджет времени на выдачу через поставщика в рамках задачи исчерпан';
 
-export const SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE = 'Поставщик вернул исход issued без кода — нарушение контракта supplier.client';
+export const SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE =
+  'Поставщик вернул исход issued без кода — нарушение контракта supplier.client';
 
-export const DELIVERY_ATTEMPT_UNKNOWN_RETRY_MESSAGE_TEMPLATE = 'Статус попытки %s остаётся неизвестным — требуется повтор задачи для дозвона к поставщику';
+export const DELIVERY_ATTEMPT_UNKNOWN_RETRY_MESSAGE_TEMPLATE =
+  'Статус попытки %s остаётся неизвестным — требуется повтор задачи для дозвона к поставщику';
 
-export const SUPPLIER_UNAVAILABLE_RETRY_MESSAGE_TEMPLATE = 'Поставщик %s ответил 5xx — повтор задачи с бэкоффом очереди';
+export const SUPPLIER_UNAVAILABLE_RETRY_MESSAGE_TEMPLATE =
+  'Поставщик %s ответил 5xx — повтор задачи с бэкоффом очереди';
 
-export const ALL_SUPPLIERS_FAILED_MESSAGE_TEMPLATE = 'Не удалось выдать заказ ни у одного поставщика: %s';
+export const ALL_SUPPLIERS_FAILED_MESSAGE_TEMPLATE =
+  'Не удалось выдать заказ ни у одного поставщика: %s';
 
 export const DELIVERY_FULFILMENT_SERVICES = 'DELIVERY_FULFILMENT_SERVICES';
 
 export const INVALID_DELIVER_ORDER_PAYLOAD_MESSAGE = 'Некорректный payload задачи deliver_order';
 
-export const ORDER_NOT_FOUND_FOR_DELIVERY_MESSAGE_TEMPLATE = 'Заказ %s не найден при попытке выдачи';
+export const ORDER_NOT_FOUND_FOR_DELIVERY_MESSAGE_TEMPLATE =
+  'Заказ %s не найден при попытке выдачи';
 
 export const UNKNOWN_FULFILLMENT_MODE_MESSAGE_TEMPLATE = 'Неизвестный режим выдачи товара: %s';
 

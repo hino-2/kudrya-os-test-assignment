@@ -82,21 +82,31 @@ function uniqueId(): string {
   return `${Date.now()}-${nextSuffix}`;
 }
 
-async function post<T>(path: string, payload: unknown, token: string | null = ADMIN_TOKEN): Promise<IHttpResult<T>> {
+async function post<T>(
+  path: string,
+  payload: unknown,
+  token: string | null = ADMIN_TOKEN,
+): Promise<IHttpResult<T>> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
 
   if (token !== null) {
     headers[ADMIN_TOKEN_HEADER] = token;
   }
 
-  const response = await fetch(`${harness.baseUrl}${path}`, { method: 'POST', headers, body: JSON.stringify(payload) });
+  const response = await fetch(`${harness.baseUrl}${path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
   const body = (await response.json()) as T;
 
   return { status: response.status, body };
 }
 
 async function insertPoolProduct(sku: string): Promise<number> {
-  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_POOL_PRODUCT_SQL, [sku]);
+  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_POOL_PRODUCT_SQL, [
+    sku,
+  ]);
   const productId = rows[0].id;
 
   await harness.dataSource.query(INSERT_SKU_STOCK_SQL, [productId, 0]);
@@ -105,7 +115,9 @@ async function insertPoolProduct(sku: string): Promise<number> {
 }
 
 async function insertSupplierProduct(sku: string, availableCount = 0): Promise<number> {
-  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_SUPPLIER_PRODUCT_SQL, [sku]);
+  const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_SUPPLIER_PRODUCT_SQL, [
+    sku,
+  ]);
   const productId = rows[0].id;
 
   await harness.dataSource.query(INSERT_SKU_STOCK_SQL, [productId, availableCount]);
@@ -114,22 +126,24 @@ async function insertSupplierProduct(sku: string, availableCount = 0): Promise<n
 }
 
 async function availableCountOf(productId: number): Promise<number> {
-  const rows = await harness.dataSource.query<Array<{ available_count: number }>>(SELECT_AVAILABLE_COUNT_SQL, [
-    productId,
-  ]);
+  const rows = await harness.dataSource.query<Array<{ available_count: number }>>(
+    SELECT_AVAILABLE_COUNT_SQL,
+    [productId],
+  );
 
   return rows[0].available_count;
 }
 
-async function insertOrder(productId: number, status: string, deliveryGeneration = 0): Promise<IOrderRow> {
+async function insertOrder(
+  productId: number,
+  status: string,
+  deliveryGeneration = 0,
+): Promise<IOrderRow> {
   const extId = `ord_admin_${uniqueId()}`;
-  const rows = await harness.dataSource.query<Array<{ id: number; ext_id: string }>>(INSERT_ORDER_SQL, [
-    extId,
-    productId,
-    `AD-${uniqueId()}`,
-    status,
-    deliveryGeneration,
-  ]);
+  const rows = await harness.dataSource.query<Array<{ id: number; ext_id: string }>>(
+    INSERT_ORDER_SQL,
+    [extId, productId, `AD-${uniqueId()}`, status, deliveryGeneration],
+  );
 
   return fetchOrder(rows[0].ext_id);
 }
@@ -142,13 +156,18 @@ async function fetchOrder(extId: string): Promise<IOrderRow> {
 
 async function insertIssuedDelivery(order: IOrderRow, productId: number): Promise<void> {
   const code = `KEY-${uniqueId()}`;
-  const keyRows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_STOCK_KEY_ISSUED_SQL, [
-    productId,
-    code,
-    order.id,
-  ]);
+  const keyRows = await harness.dataSource.query<Array<{ id: number }>>(
+    INSERT_STOCK_KEY_ISSUED_SQL,
+    [productId, code, order.id],
+  );
 
-  await harness.dataSource.query(INSERT_ISSUED_DELIVERY_SQL, [order.id, productId, 'AD-DELIVERED', code, keyRows[0].id]);
+  await harness.dataSource.query(INSERT_ISSUED_DELIVERY_SQL, [
+    order.id,
+    productId,
+    'AD-DELIVERED',
+    code,
+    keyRows[0].id,
+  ]);
 }
 
 async function jobExistsForDedupeKey(dedupeKey: string): Promise<boolean> {
@@ -156,7 +175,7 @@ async function jobExistsForDedupeKey(dedupeKey: string): Promise<boolean> {
 }
 
 async function jobCountForDedupeKey(dedupeKey: string): Promise<number> {
-  const rows = await harness.dataSource.query(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+  const rows = await harness.dataSource.query<unknown[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
 
   return rows.length;
 }
@@ -192,17 +211,18 @@ describe('AdminTokenGuard', () => {
 describe('POST /admin/sweeper/run', () => {
   it('runs a sweep cycle and reports all pass counters', async () => {
     const { status, body } = await post<SweeperRunResponseDto>('/admin/sweeper/run', {});
+    const anyNumber = expect.any(Number) as number;
 
     expect(status).toBe(200);
     expect(body).toEqual({
-      reclaimed_stale_jobs: expect.any(Number),
-      requeued_stuck_orders: expect.any(Number),
-      retried_out_of_stock: expect.any(Number),
-      retried_delivery_failed: expect.any(Number),
-      demoted_stale_inflight: expect.any(Number),
-      redriven_unknown_attempts: expect.any(Number),
-      replayed_orphans: expect.any(Number),
-      abandoned_orphans: expect.any(Number),
+      reclaimed_stale_jobs: anyNumber,
+      requeued_stuck_orders: anyNumber,
+      retried_out_of_stock: anyNumber,
+      retried_delivery_failed: anyNumber,
+      demoted_stale_inflight: anyNumber,
+      redriven_unknown_attempts: anyNumber,
+      replayed_orphans: anyNumber,
+      abandoned_orphans: anyNumber,
     });
   });
 });
@@ -227,7 +247,9 @@ describe('POST /admin/products/:sku/restock', () => {
 
     await insertPoolProduct(sku);
 
-    const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, { count: 5 });
+    const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, {
+      count: 5,
+    });
 
     expect(status).toBe(200);
     expect(body).toEqual({ added: 5, available_count: 5, supplier_restock: null });
@@ -237,7 +259,9 @@ describe('POST /admin/products/:sku/restock', () => {
     const sku = `AD-SUP-${uniqueId()}`;
     const productId = await insertSupplierProduct(sku, 2);
 
-    const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, { count: 10 });
+    const { status, body } = await post<RestockResponseDto>(`/admin/products/${sku}/restock`, {
+      count: 10,
+    });
 
     expect(status).toBe(200);
     expect(body.added).toBe(10);
@@ -248,7 +272,10 @@ describe('POST /admin/products/:sku/restock', () => {
     // обязан быть виден в ответе, а не только в логах. В этом vitest-проекте заглушки не
     // поднимаются (порты в DEFAULT_TEST_ENV заведомо мёртвые), значит оба исхода — отказ.
     expect(body.supplier_restock).toHaveLength(2);
-    expect(body.supplier_restock?.map((outcome) => outcome.supplier_code).sort()).toEqual(['A', 'B']);
+    expect(body.supplier_restock?.map((outcome) => outcome.supplier_code).sort()).toEqual([
+      'A',
+      'B',
+    ]);
 
     for (const outcome of body.supplier_restock ?? []) {
       expect(outcome.ok).toBe(false);
@@ -261,7 +288,9 @@ describe('POST /admin/products/:sku/restock', () => {
 
     await insertSupplierProduct(sku);
 
-    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, { codes: ['x'] });
+    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, {
+      codes: ['x'],
+    });
 
     expect(status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_FAILED');
@@ -301,7 +330,9 @@ describe('POST /admin/products/:sku/restock', () => {
   ])('rejects %s with 400', async (_label, codes) => {
     const sku = `AD-POOL-${uniqueId()}`;
     const productId = await insertPoolProduct(sku);
-    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, { codes });
+    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, {
+      codes,
+    });
 
     expect(status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_FAILED');
@@ -316,14 +347,18 @@ describe('POST /admin/products/:sku/restock', () => {
     // односимвольные коды: тело с 10001 длинным кодом упирается в лимит body-parser'а раньше,
     // чем в @ArrayMaxSize, и отдаёт 500 PayloadTooLargeError вместо 400
     const codes = Array.from({ length: RESTOCK_COUNT_MAX + 1 }, () => 'x');
-    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, { codes });
+    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, {
+      codes,
+    });
 
     expect(status).toBe(400);
     expect(body.error.code).toBe('VALIDATION_FAILED');
   });
 
   it('returns 404 for an unknown sku', async () => {
-    const { status, body } = await post<IErrorEnvelope>('/admin/products/AD-UNKNOWN-SKU/restock', { count: 1 });
+    const { status, body } = await post<IErrorEnvelope>('/admin/products/AD-UNKNOWN-SKU/restock', {
+      count: 1,
+    });
 
     expect(status).toBe(404);
     expect(body.error.code).toBe('PRODUCT_NOT_FOUND');
@@ -335,7 +370,10 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
     const productId = await insertSupplierProduct(`AD-SUP-${uniqueId()}`, 5);
     const order = await insertOrder(productId, ORDER_STATUS.OUT_OF_STOCK, 1);
 
-    const { status, body } = await post<RedeliverResponseDto>(`/admin/orders/${order.ext_id}/redeliver`, {});
+    const { status, body } = await post<RedeliverResponseDto>(
+      `/admin/orders/${order.ext_id}/redeliver`,
+      {},
+    );
 
     expect(status).toBe(202);
     expect(body).toEqual({ enqueued: true, generation: 2 });
@@ -351,9 +389,12 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
     const productId = await insertSupplierProduct(`AD-SUP-${uniqueId()}`, 5);
     const order = await insertOrder(productId, ORDER_STATUS.DELIVERY_FAILED, 2);
 
-    const { status, body } = await post<RedeliverResponseDto>(`/admin/orders/${order.ext_id}/redeliver`, {
-      reason: 'manual retry',
-    });
+    const { status, body } = await post<RedeliverResponseDto>(
+      `/admin/orders/${order.ext_id}/redeliver`,
+      {
+        reason: 'manual retry',
+      },
+    );
 
     expect(status).toBe(202);
     expect(body).toEqual({ enqueued: true, generation: 3 });
@@ -369,7 +410,10 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
 
     await harness.dataSource.query(INSERT_LIVE_JOB_SQL, [dedupeKey]);
 
-    const { status, body } = await post<RedeliverResponseDto>(`/admin/orders/${order.ext_id}/redeliver`, {});
+    const { status, body } = await post<RedeliverResponseDto>(
+      `/admin/orders/${order.ext_id}/redeliver`,
+      {},
+    );
 
     expect(status).toBe(202);
     expect(body).toEqual({ enqueued: false, generation: 2 });
@@ -386,7 +430,10 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
 
     await insertIssuedDelivery(order, productId);
 
-    const { status, body } = await post<IErrorEnvelope>(`/admin/orders/${order.ext_id}/redeliver`, {});
+    const { status, body } = await post<IErrorEnvelope>(
+      `/admin/orders/${order.ext_id}/redeliver`,
+      {},
+    );
 
     expect(status).toBe(409);
     expect(body.error.code).toBe('ORDER_ALREADY_DELIVERED');
@@ -396,14 +443,20 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
     const productId = await insertPoolProduct(`AD-POOL-${uniqueId()}`);
     const order = await insertOrder(productId, ORDER_STATUS.PAID, 0);
 
-    const { status, body } = await post<IErrorEnvelope>(`/admin/orders/${order.ext_id}/redeliver`, {});
+    const { status, body } = await post<IErrorEnvelope>(
+      `/admin/orders/${order.ext_id}/redeliver`,
+      {},
+    );
 
     expect(status).toBe(409);
     expect(body.error.code).toBe('ORDER_NOT_RECOVERABLE');
   });
 
   it('returns 404 for an unknown orderId', async () => {
-    const { status, body } = await post<IErrorEnvelope>('/admin/orders/ord_unknown_00000/redeliver', {});
+    const { status, body } = await post<IErrorEnvelope>(
+      '/admin/orders/ord_unknown_00000/redeliver',
+      {},
+    );
 
     expect(status).toBe(404);
     expect(body.error.code).toBe('ORDER_NOT_FOUND');

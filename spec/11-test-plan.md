@@ -167,7 +167,7 @@ Recovery: `POST /admin/products/KEY-GTA5/restock {"count": 3}` → `200 {added:3
 | `integration/catalog-keyset.e2e.spec.ts` | Full pagination walk over 300 seeded SKUs visits every SKU exactly once in `sku COLLATE "C"` order; cursor stability under a concurrent insert; `in_stock` filter correctness; `limit` bounds; invalid cursor → `400`; an `EXPLAIN` assertion that the designed plan contains `Index Only Scan` and **not** `Seq Scan`/`Sort`. |
 | `apps/supplier-stub/test/issue.spec.ts` | Same `request_id` → same code (100 repeats); `GET /issue/:id` 200/404; inventory exhaustion → `409 out_of_stock`; a known `request_id` still returns its code when inventory is exhausted; every scenario mode behaves as tabulated; `issue_then_hang` **stores before hanging**; persistence survives a restart. |
 
-**CI gate:** `lint` → `typecheck` → `test:unit` → `migration:run` → `test:integration`. Integration uses a `postgres:16-alpine` service container; all stub rates forced to `0`; `SUPPLIER_REQUEST_TIMEOUT_MS=500` and `STUB_HANG_MS=2000` to keep the suite under ~90 s.
+**CI gate** (as implemented, jobs in this order): `lint` + `format:check` → `typecheck` → `build` → `test:unit` → `test:integration`. Two corrections to the original plan: `build` was missing entirely, so a tree that only failed to compile for production went green (finding H7); and `migration:run` was never a CI step — the integration suite applies the schema itself, and the container applies it on startup under an advisory lock (see §10 and `apps/api/src/common/db/migrate.ts`). Integration uses a `postgres:16-alpine` service container; all stub rates forced to `0`; `SUPPLIER_REQUEST_TIMEOUT_MS=500` and `STUB_HANG_MS=2000` to keep the suite under ~90 s.
 
 ---
 

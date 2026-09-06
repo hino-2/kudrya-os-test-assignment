@@ -1,5 +1,11 @@
-import { ARG_PREFIX, INVALID_INT_ARG_MESSAGE, MISSING_ARG_MESSAGE } from './lib.constants';
+import {
+  ARG_PREFIX,
+  INVALID_INT_ARG_MESSAGE,
+  MISSING_ARG_MESSAGE,
+  MISSING_ARG_VALUE_MESSAGE,
+} from './lib.constants';
 import type { IParsedArgs } from './lib.interfaces';
+import type { ArgValue } from './lib.type';
 
 // Собственный минимальный парсер argv вместо npm-зависимости (см. бюджет зависимостей §13):
 // CLI tools/* принимают не больше десятка простых флагов вида `--name value` / `--name=value` /
@@ -36,10 +42,22 @@ export function parseArgs(argv: string[]): IParsedArgs {
   return result;
 }
 
+// parseArgs кладёт true во флаг без значения, поэтому `--count` без числа давал
+// Number(true) === 1, проходил Number.isSafeInteger и молча подменял требуемое значение
+// (а `--sku` без значения так же молча уходил в fallback). Значимый флаг без значения —
+// ошибка вызова, а не значение по умолчанию.
+function requireArgValue(name: string, value: ArgValue): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${MISSING_ARG_VALUE_MESSAGE}: ${ARG_PREFIX}${name}`);
+  }
+
+  return value;
+}
+
 export function stringArg(args: IParsedArgs, name: string, fallback?: string): string | undefined {
   const value = args[name];
 
-  return typeof value === 'string' ? value : fallback;
+  return value === undefined ? fallback : requireArgValue(name, value);
 }
 
 export function requireStringArg(args: IParsedArgs, name: string): string {
@@ -59,7 +77,8 @@ export function intArg(args: IParsedArgs, name: string, fallback: number): numbe
     return fallback;
   }
 
-  const parsed = Number(value);
+  const raw = requireArgValue(name, value);
+  const parsed = raw.trim().length === 0 ? Number.NaN : Number(raw);
 
   if (!Number.isSafeInteger(parsed)) {
     throw new Error(`${INVALID_INT_ARG_MESSAGE}: ${ARG_PREFIX}${name}="${String(value)}"`);

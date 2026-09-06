@@ -1,7 +1,7 @@
 import { boolFlag, hasArg, intArg, parseArgs, stringArg } from './lib/args';
 import { loadDotEnv } from './lib/env';
 import { httpGet, httpPost } from './lib/http';
-import { CHECK_STATUS } from './lib/lib.constants';
+import { CHECK_STATUS, CHECK_VERDICT, EXIT_CODE } from './lib/lib.constants';
 import { printCheckTable, printTable } from './lib/table';
 import type { ICheckRow, IHttpResult } from './lib/lib.interfaces';
 import {
@@ -47,6 +47,8 @@ import {
   SCENARIOS_RESTORED_MESSAGE,
   SCENARIO_MODE,
   SETTLED_ORDER_STATUSES,
+  STUB_CONTROL_FAILED_MESSAGE,
+  STUB_RESTORE_FAILED_MESSAGE,
   STUB_STATE_UNAVAILABLE_MESSAGE,
   SUPPLIER_A_BASE_URL_VAR,
   SUPPLIER_B_BASE_URL_VAR,
@@ -75,7 +77,9 @@ function delay(ms: number): Promise<void> {
 }
 
 function isFailMode(value: string): value is FailMode {
-  return value === FAIL_MODE.ERROR_5XX || value === FAIL_MODE.BAD_REQUEST || value === FAIL_MODE.STOPPED;
+  return (
+    value === FAIL_MODE.ERROR_5XX || value === FAIL_MODE.BAD_REQUEST || value === FAIL_MODE.STOPPED
+  );
 }
 
 function parseCliOptions(argv: string[]): IDemoFallbackCliOptions | undefined {
@@ -101,9 +105,21 @@ function parseCliOptions(argv: string[]): IDemoFallbackCliOptions | undefined {
     amount: amountRaw === undefined ? undefined : Number(amountRaw),
     currency: stringArg(args, 'currency', DEFAULT_CURRENCY) as string,
     failMode: failModeRaw,
-    apiBaseUrl: stringArg(args, 'api', process.env[API_BASE_URL_VAR] ?? DEFAULT_API_BASE_URL) as string,
-    supplierABaseUrl: stringArg(args, 'supplier-a', process.env[SUPPLIER_A_BASE_URL_VAR] ?? DEFAULT_SUPPLIER_A_BASE_URL) as string,
-    supplierBBaseUrl: stringArg(args, 'supplier-b', process.env[SUPPLIER_B_BASE_URL_VAR] ?? DEFAULT_SUPPLIER_B_BASE_URL) as string,
+    apiBaseUrl: stringArg(
+      args,
+      'api',
+      process.env[API_BASE_URL_VAR] ?? DEFAULT_API_BASE_URL,
+    ) as string,
+    supplierABaseUrl: stringArg(
+      args,
+      'supplier-a',
+      process.env[SUPPLIER_A_BASE_URL_VAR] ?? DEFAULT_SUPPLIER_A_BASE_URL,
+    ) as string,
+    supplierBBaseUrl: stringArg(
+      args,
+      'supplier-b',
+      process.env[SUPPLIER_B_BASE_URL_VAR] ?? DEFAULT_SUPPLIER_B_BASE_URL,
+    ) as string,
     timeoutMs: intArg(args, 'timeout-ms', DEFAULT_TIMEOUT_MS),
     waitMs: intArg(args, 'wait-ms', DEFAULT_WAIT_MS),
     useStubControl: !boolFlag(args, 'no-stub-control'),
@@ -111,12 +127,24 @@ function parseCliOptions(argv: string[]): IDemoFallbackCliOptions | undefined {
   };
 }
 
-async function forceScenario(baseUrl: string, mode: ScenarioMode, timeoutMs: number): Promise<void> {
-  await httpPost(`${baseUrl}${CONTROL_SCENARIO_PATH}`, { mode }, timeoutMs);
+// httpRequest по контракту (lib/http.ts) не бросает, поэтому без проверки result.ok
+// мёртвая заглушка молча оставалась бы в режиме normal и демо ловило бы случайные отказы
+async function requireStubControl(url: string, body: unknown, timeoutMs: number): Promise<void> {
+  const result = await httpPost(url, body, timeoutMs);
+
+  if (!result.ok) {
+    throw new Error(
+      `${STUB_CONTROL_FAILED_MESSAGE} [${url} status=${result.status} ${result.error ?? ''}]`,
+    );
+  }
 }
 
-async function resetStub(baseUrl: string, timeoutMs: number): Promise<void> {
-  await httpPost(`${baseUrl}${CONTROL_RESET_PATH}`, {}, timeoutMs);
+function forceScenario(baseUrl: string, mode: ScenarioMode, timeoutMs: number): Promise<void> {
+  return requireStubControl(`${baseUrl}${CONTROL_SCENARIO_PATH}`, { mode }, timeoutMs);
+}
+
+function resetStub(baseUrl: string, timeoutMs: number): Promise<void> {
+  return requireStubControl(`${baseUrl}${CONTROL_RESET_PATH}`, {}, timeoutMs);
 }
 
 async function readStubSnapshot(baseUrl: string, timeoutMs: number): Promise<IStubSnapshot> {
@@ -129,9 +157,16 @@ async function readStubSnapshot(baseUrl: string, timeoutMs: number): Promise<ISt
   return { available: true, issuedCount: result.body.issuedCount };
 }
 
-async function snapshotPair(options: IDemoFallbackCliOptions, skipA: boolean): Promise<IStubSnapshotPair> {
-  const a = skipA ? { available: false, issuedCount: 0 } : await readStubSnapshot(options.supplierABaseUrl, options.timeoutMs);
-  const b = options.useStubControl ? await readStubSnapshot(options.supplierBBaseUrl, options.timeoutMs) : { available: false, issuedCount: 0 };
+async function snapshotPair(
+  options: IDemoFallbackCliOptions,
+  skipA: boolean,
+): Promise<IStubSnapshotPair> {
+  const a = skipA
+    ? { available: false, issuedCount: 0 }
+    : await readStubSnapshot(options.supplierABaseUrl, options.timeoutMs);
+  const b = options.useStubControl
+    ? await readStubSnapshot(options.supplierBBaseUrl, options.timeoutMs)
+    : { available: false, issuedCount: 0 };
 
   return { a, b };
 }
@@ -139,22 +174,43 @@ async function snapshotPair(options: IDemoFallbackCliOptions, skipA: boolean): P
 async function resolveTarget(options: IDemoFallbackCliOptions): Promise<IDemoTarget> {
   if (options.order !== undefined) {
     if (options.amount !== undefined) {
-      return { extId: options.order, sku: options.sku, amountMajor: options.amount, currency: options.currency };
+      return {
+        extId: options.order,
+        sku: options.sku,
+        amountMajor: options.amount,
+        currency: options.currency,
+      };
     }
 
-    const detail = await httpGet<IOrderDetailResponse>(`${options.apiBaseUrl}${ORDERS_PATH}/${options.order}`, options.timeoutMs);
+    const detail = await httpGet<IOrderDetailResponse>(
+      `${options.apiBaseUrl}${ORDERS_PATH}/${options.order}`,
+      options.timeoutMs,
+    );
 
     if (!detail.ok || detail.body === null) {
-      throw new Error(`${ORDER_LOOKUP_FAILED_MESSAGE}: status=${detail.status} error=${detail.error ?? ''}`);
+      throw new Error(
+        `${ORDER_LOOKUP_FAILED_MESSAGE}: status=${detail.status} error=${detail.error ?? ''}`,
+      );
     }
 
-    return { extId: options.order, sku: detail.body.sku, amountMajor: detail.body.amount, currency: detail.body.currency };
+    return {
+      extId: options.order,
+      sku: detail.body.sku,
+      amountMajor: detail.body.amount,
+      currency: detail.body.currency,
+    };
   }
 
-  const created = await httpPost<IOrderCreateResponse>(`${options.apiBaseUrl}${ORDERS_PATH}`, { sku: options.sku }, options.timeoutMs);
+  const created = await httpPost<IOrderCreateResponse>(
+    `${options.apiBaseUrl}${ORDERS_PATH}`,
+    { sku: options.sku },
+    options.timeoutMs,
+  );
 
   if (!created.ok || created.body === null) {
-    throw new Error(`${ORDER_CREATE_FAILED_MESSAGE}: status=${created.status} error=${created.error ?? ''}`);
+    throw new Error(
+      `${ORDER_CREATE_FAILED_MESSAGE}: status=${created.status} error=${created.error ?? ''}`,
+    );
   }
 
   return {
@@ -166,16 +222,24 @@ async function resolveTarget(options: IDemoFallbackCliOptions): Promise<IDemoTar
 }
 
 async function fetchCatalogType(options: IDemoFallbackCliOptions, sku: string): Promise<string> {
-  const result = await httpGet<ICatalogItemResponse>(`${options.apiBaseUrl}${CATALOG_PATH}/${sku}`, options.timeoutMs);
+  const result = await httpGet<ICatalogItemResponse>(
+    `${options.apiBaseUrl}${CATALOG_PATH}/${sku}`,
+    options.timeoutMs,
+  );
 
   if (!result.ok || result.body === null) {
-    throw new Error(`${CATALOG_LOOKUP_FAILED_MESSAGE}: status=${result.status} error=${result.error ?? ''}`);
+    throw new Error(
+      `${CATALOG_LOOKUP_FAILED_MESSAGE}: status=${result.status} error=${result.error ?? ''}`,
+    );
   }
 
   return result.body.type;
 }
 
-async function sendPayment(options: IDemoFallbackCliOptions, target: IDemoTarget): Promise<IHttpResult<IWebhookResultBody>> {
+async function sendPayment(
+  options: IDemoFallbackCliOptions,
+  target: IDemoTarget,
+): Promise<IHttpResult<IWebhookResultBody>> {
   const payload: IWebhookPayload = {
     event_id: `${EVENT_ID_PREFIX}${target.extId}`,
     order_id: target.extId,
@@ -185,16 +249,26 @@ async function sendPayment(options: IDemoFallbackCliOptions, target: IDemoTarget
     created_at: new Date().toISOString(),
   };
 
-  return httpPost<IWebhookResultBody>(`${options.apiBaseUrl}${WEBHOOK_PAYMENT_PATH}`, payload, options.timeoutMs);
+  return httpPost<IWebhookResultBody>(
+    `${options.apiBaseUrl}${WEBHOOK_PAYMENT_PATH}`,
+    payload,
+    options.timeoutMs,
+  );
 }
 
-async function pollOrderUntilSettled(options: IDemoFallbackCliOptions, extId: string): Promise<IPollOutcome> {
+async function pollOrderUntilSettled(
+  options: IDemoFallbackCliOptions,
+  extId: string,
+): Promise<IPollOutcome> {
   const startedAt = Date.now();
   const deadline = startedAt + options.waitMs;
   let detail: IOrderDetailResponse | null = null;
 
   while (Date.now() < deadline) {
-    const result = await httpGet<IOrderDetailResponse>(`${options.apiBaseUrl}${ORDERS_PATH}/${extId}`, options.timeoutMs);
+    const result = await httpGet<IOrderDetailResponse>(
+      `${options.apiBaseUrl}${ORDERS_PATH}/${extId}`,
+      options.timeoutMs,
+    );
 
     if (result.ok && result.body !== null) {
       detail = result.body;
@@ -251,48 +325,83 @@ function buildPaymentCheckRows(
   rows.push(pass(CHECK_NAME.ORDER_READY, `order_id=${target.extId}`));
 
   const applied =
-    payment.status === 200 && payment.body !== null && payment.body.result === PAYMENT_RESULT_APPLIED && payment.body.order_status === ORDER_STATUS.PAID;
+    payment.status === 200 &&
+    payment.body !== null &&
+    payment.body.result === PAYMENT_RESULT_APPLIED &&
+    payment.body.order_status === ORDER_STATUS.PAID;
 
   rows.push(
     applied
       ? pass(CHECK_NAME.PAYMENT_APPLIED, `result=${payment.body?.result ?? EMPTY_CELL}`)
-      : fail(CHECK_NAME.PAYMENT_APPLIED, `${WEBHOOK_FAILED_MESSAGE}: status=${payment.status} body=${JSON.stringify(payment.body)}`),
+      : fail(
+          CHECK_NAME.PAYMENT_APPLIED,
+          `${WEBHOOK_FAILED_MESSAGE}: status=${payment.status} body=${JSON.stringify(payment.body)}`,
+        ),
   );
 
   return rows;
 }
 
-function buildOrderRows(target: IDemoTarget, catalogType: string, payment: IHttpResult<IWebhookResultBody>, poll: IPollOutcome): ICheckRow[] {
+function buildOrderRows(
+  target: IDemoTarget,
+  catalogType: string,
+  payment: IHttpResult<IWebhookResultBody>,
+  poll: IPollOutcome,
+): ICheckRow[] {
   const rows = buildPaymentCheckRows(target, catalogType, payment);
 
   rows.push(
     poll.settled && poll.detail?.status === ORDER_STATUS.DELIVERED
       ? pass(CHECK_NAME.ORDER_DELIVERED, `status=${poll.detail.status}, waited_ms=${poll.waitedMs}`)
-      : fail(CHECK_NAME.ORDER_DELIVERED, `${ORDER_NOT_DELIVERED_MESSAGE}: status=${poll.detail?.status ?? EMPTY_CELL}`),
+      : fail(
+          CHECK_NAME.ORDER_DELIVERED,
+          `${ORDER_NOT_DELIVERED_MESSAGE}: status=${poll.detail?.status ?? EMPTY_CELL}`,
+        ),
   );
 
   const delivery = poll.detail?.delivery ?? null;
-  const deliveredFromB = delivery?.source === DELIVERY_SOURCE_SUPPLIER && delivery.supplier === SUPPLIER_CODE.B;
+  const deliveredFromB =
+    delivery?.source === DELIVERY_SOURCE_SUPPLIER && delivery.supplier === SUPPLIER_CODE.B;
 
   rows.push(
     deliveredFromB
-      ? pass(CHECK_NAME.DELIVERY_FROM_B, `source=${delivery?.source}, supplier=${delivery?.supplier}`)
-      : fail(CHECK_NAME.DELIVERY_FROM_B, `${FALLBACK_NOT_TRIGGERED_MESSAGE}: delivery=${JSON.stringify(delivery)}`),
+      ? pass(
+          CHECK_NAME.DELIVERY_FROM_B,
+          `source=${delivery?.source}, supplier=${delivery?.supplier}`,
+        )
+      : fail(
+          CHECK_NAME.DELIVERY_FROM_B,
+          `${FALLBACK_NOT_TRIGGERED_MESSAGE}: delivery=${JSON.stringify(delivery)}`,
+        ),
   );
 
   return rows;
 }
 
-function buildAttemptRows(options: IDemoFallbackCliOptions, attempts: IOrderDeliveryAttemptBlock[]): ICheckRow[] {
+function buildAttemptRows(
+  options: IDemoFallbackCliOptions,
+  attempts: IOrderDeliveryAttemptBlock[],
+): ICheckRow[] {
   const rows: ICheckRow[] = [];
   const attemptA = attempts.find((attempt) => attempt.supplier === SUPPLIER_CODE.A);
   const attemptB = attempts.find((attempt) => attempt.supplier === SUPPLIER_CODE.B);
   const expectedKinds = EXPECTED_ERROR_KINDS[options.failMode];
 
   rows.push(
-    attemptA !== undefined && attemptA.state === ATTEMPT_STATE.FAILED && attemptA.error_kind !== null && expectedKinds.includes(attemptA.error_kind)
-      ? pass(CHECK_NAME.ATTEMPT_A_FAILED, `state=${attemptA.state}, error_kind=${attemptA.error_kind}`)
-      : fail(CHECK_NAME.ATTEMPT_A_FAILED, attemptA === undefined ? NO_A_ATTEMPT_MESSAGE : `state=${attemptA.state}, error_kind=${attemptA.error_kind ?? EMPTY_CELL}`),
+    attemptA !== undefined &&
+      attemptA.state === ATTEMPT_STATE.FAILED &&
+      attemptA.error_kind !== null &&
+      expectedKinds.includes(attemptA.error_kind)
+      ? pass(
+          CHECK_NAME.ATTEMPT_A_FAILED,
+          `state=${attemptA.state}, error_kind=${attemptA.error_kind}`,
+        )
+      : fail(
+          CHECK_NAME.ATTEMPT_A_FAILED,
+          attemptA === undefined
+            ? NO_A_ATTEMPT_MESSAGE
+            : `state=${attemptA.state}, error_kind=${attemptA.error_kind ?? EMPTY_CELL}`,
+        ),
   );
 
   rows.push(
@@ -301,15 +410,21 @@ function buildAttemptRows(options: IDemoFallbackCliOptions, attempts: IOrderDeli
       : fail(CHECK_NAME.ATTEMPT_B_SUCCEEDED, `state=${attemptB?.state ?? EMPTY_CELL}`),
   );
 
-  const requestIdsDiffer = attemptA !== undefined && attemptB !== undefined && attemptA.request_id !== attemptB.request_id;
+  const requestIdsDiffer =
+    attemptA !== undefined && attemptB !== undefined && attemptA.request_id !== attemptB.request_id;
 
   rows.push(
     requestIdsDiffer
       ? pass(CHECK_NAME.REQUEST_IDS_DIFFER, `a=${attemptA?.request_id}, b=${attemptB?.request_id}`)
-      : fail(CHECK_NAME.REQUEST_IDS_DIFFER, `a=${attemptA?.request_id ?? EMPTY_CELL}, b=${attemptB?.request_id ?? EMPTY_CELL}`),
+      : fail(
+          CHECK_NAME.REQUEST_IDS_DIFFER,
+          `a=${attemptA?.request_id ?? EMPTY_CELL}, b=${attemptB?.request_id ?? EMPTY_CELL}`,
+        ),
   );
 
-  const succeededCount = attempts.filter((attempt) => attempt.state === ATTEMPT_STATE.SUCCEEDED).length;
+  const succeededCount = attempts.filter(
+    (attempt) => attempt.state === ATTEMPT_STATE.SUCCEEDED,
+  ).length;
 
   rows.push(
     succeededCount === 1
@@ -320,9 +435,16 @@ function buildAttemptRows(options: IDemoFallbackCliOptions, attempts: IOrderDeli
   return rows;
 }
 
-function buildStubRows(options: IDemoFallbackCliOptions, before: IStubSnapshotPair, after: IStubSnapshotPair): ICheckRow[] {
+function buildStubRows(
+  options: IDemoFallbackCliOptions,
+  before: IStubSnapshotPair,
+  after: IStubSnapshotPair,
+): ICheckRow[] {
   if (!options.useStubControl) {
-    return [skip(CHECK_NAME.STUB_A_MINTED_NONE, NO_STUB_CONTROL_SKIP_MESSAGE), skip(CHECK_NAME.STUB_B_MINTED_ONE, NO_STUB_CONTROL_SKIP_MESSAGE)];
+    return [
+      skip(CHECK_NAME.STUB_A_MINTED_NONE, NO_STUB_CONTROL_SKIP_MESSAGE),
+      skip(CHECK_NAME.STUB_B_MINTED_ONE, NO_STUB_CONTROL_SKIP_MESSAGE),
+    ];
   }
 
   const rows: ICheckRow[] = [];
@@ -372,7 +494,9 @@ async function main(): Promise<void> {
   const targetLabel = options.order !== undefined ? `order=${options.order}` : `sku=${options.sku}`;
 
   console.log(`Демо фолбэка A->B: fail-mode=${options.failMode}, ${targetLabel}`);
-  console.log(`api=${options.apiBaseUrl} supplier-a=${options.supplierABaseUrl} supplier-b=${options.supplierBBaseUrl}`);
+  console.log(
+    `api=${options.apiBaseUrl} supplier-a=${options.supplierABaseUrl} supplier-b=${options.supplierBBaseUrl}`,
+  );
 
   const aStopped = options.failMode === FAIL_MODE.STOPPED;
 
@@ -393,7 +517,9 @@ async function main(): Promise<void> {
       await forceScenario(options.supplierABaseUrl, aMode, options.timeoutMs);
     }
 
-    console.log(`Сценарии стендов выставлены: B=${SCENARIO_MODE.OK}${aMode !== null ? `, A=${aMode}` : ', A не тронут (--fail-mode stopped)'}`);
+    console.log(
+      `Сценарии стендов выставлены: B=${SCENARIO_MODE.OK}${aMode !== null ? `, A=${aMode}` : ', A не тронут (--fail-mode stopped)'}`,
+    );
   }
 
   const before = await snapshotPair(options, aStopped);
@@ -401,23 +527,40 @@ async function main(): Promise<void> {
   try {
     const target = await resolveTarget(options);
 
-    console.log(`Заказ ${target.extId}: sku=${target.sku}, amount=${target.amountMajor} ${target.currency}`);
+    console.log(
+      `Заказ ${target.extId}: sku=${target.sku}, amount=${target.amountMajor} ${target.currency}`,
+    );
 
     const catalogType = await fetchCatalogType(options, target.sku);
 
     if (catalogType === POOL_PRODUCT_TYPE) {
-      printCheckTable([fail(CHECK_NAME.SKU_SUPPLIER_MODE, POOL_SKU_MESSAGE), ...buildSkippedRows(ALL_CHECK_NAMES.slice(1), POOL_SKU_MESSAGE)]);
-      process.exitCode = 1;
+      process.exitCode =
+        EXIT_CODE[
+          printCheckTable([
+            fail(CHECK_NAME.SKU_SUPPLIER_MODE, POOL_SKU_MESSAGE),
+            ...buildSkippedRows(ALL_CHECK_NAMES.slice(1), POOL_SKU_MESSAGE),
+          ])
+        ];
+
       return;
     }
 
     const payment = await sendPayment(options, target);
     const paymentOk =
-      payment.status === 200 && payment.body !== null && payment.body.result === PAYMENT_RESULT_APPLIED && payment.body.order_status === ORDER_STATUS.PAID;
+      payment.status === 200 &&
+      payment.body !== null &&
+      payment.body.result === PAYMENT_RESULT_APPLIED &&
+      payment.body.order_status === ORDER_STATUS.PAID;
 
     if (!paymentOk) {
-      printCheckTable([...buildPaymentCheckRows(target, catalogType, payment), ...buildSkippedRows(ALL_CHECK_NAMES.slice(3), WEBHOOK_FAILED_MESSAGE)]);
-      process.exitCode = 1;
+      process.exitCode =
+        EXIT_CODE[
+          printCheckTable([
+            ...buildPaymentCheckRows(target, catalogType, payment),
+            ...buildSkippedRows(ALL_CHECK_NAMES.slice(3), WEBHOOK_FAILED_MESSAGE),
+          ])
+        ];
+
       return;
     }
 
@@ -427,27 +570,36 @@ async function main(): Promise<void> {
 
     printAttemptsTable(attempts);
 
-    const ok = printCheckTable([
+    const verdict = printCheckTable([
       ...buildOrderRows(target, catalogType, payment, poll),
       ...buildAttemptRows(options, attempts),
       ...buildStubRows(options, before, after),
     ]);
 
-    process.exitCode = ok ? 0 : 1;
+    process.exitCode = EXIT_CODE[verdict];
   } finally {
+    // восстановление сценариев — уборка, а не проверка: её сбой не должен превращать
+    // успешный прогон в exit 1 через main().catch
     if (options.useStubControl) {
-      await forceScenario(options.supplierBBaseUrl, SCENARIO_MODE.NORMAL, options.timeoutMs);
+      try {
+        await forceScenario(options.supplierBBaseUrl, SCENARIO_MODE.NORMAL, options.timeoutMs);
 
-      if (!aStopped) {
-        await forceScenario(options.supplierABaseUrl, SCENARIO_MODE.NORMAL, options.timeoutMs);
+        if (!aStopped) {
+          await forceScenario(options.supplierABaseUrl, SCENARIO_MODE.NORMAL, options.timeoutMs);
+        }
+
+        console.log(SCENARIOS_RESTORED_MESSAGE);
+      } catch (error: unknown) {
+        console.error(
+          STUB_RESTORE_FAILED_MESSAGE,
+          error instanceof Error ? error.message : String(error),
+        );
       }
-
-      console.log(SCENARIOS_RESTORED_MESSAGE);
     }
   }
 }
 
 main().catch((error: unknown) => {
   console.error(DEMO_FAILED_MESSAGE, error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+  process.exitCode = EXIT_CODE[CHECK_VERDICT.FAIL];
 });

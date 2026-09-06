@@ -36,7 +36,9 @@ export class InitPayments1756600000002 implements MigrationInterface {
         ON payment_events (order_ext_id, received_at) WHERE state = 'orphan';
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_payment_events_order ON payment_events (order_id, occurred_at DESC);`);
+    await queryRunner.query(
+      `CREATE INDEX idx_payment_events_order ON payment_events (order_id, occurred_at DESC);`,
+    );
 
     await queryRunner.query(`
       CREATE INDEX idx_payment_events_conflict
@@ -82,7 +84,9 @@ export class InitPayments1756600000002 implements MigrationInterface {
     await queryRunner.query(
       `CREATE INDEX idx_ledger_entries_order    ON ledger_entries (order_id) WHERE order_id IS NOT NULL;`,
     );
-    await queryRunner.query(`CREATE INDEX idx_ledger_entries_account  ON ledger_entries (account, created_at DESC);`);
+    await queryRunner.query(
+      `CREATE INDEX idx_ledger_entries_account  ON ledger_entries (account, created_at DESC);`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

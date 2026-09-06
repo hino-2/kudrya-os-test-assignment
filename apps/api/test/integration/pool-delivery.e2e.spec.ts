@@ -65,13 +65,17 @@ const SELECT_SKU_STOCK_SQL = `
 
 const SELECT_PRODUCT_IN_STOCK_SQL = 'SELECT in_stock FROM products WHERE sku = $1';
 
-const SELECT_STOCK_KEYS_FOR_ORDER_SQL = 'SELECT status, order_id FROM stock_keys WHERE order_id = $1';
+const SELECT_STOCK_KEYS_FOR_ORDER_SQL =
+  'SELECT status, order_id FROM stock_keys WHERE order_id = $1';
 
-const SELECT_ISSUED_DELIVERY_SQL = 'SELECT code, source, stock_key_id FROM issued_deliveries WHERE order_id = $1';
+const SELECT_ISSUED_DELIVERY_SQL =
+  'SELECT code, source, stock_key_id FROM issued_deliveries WHERE order_id = $1';
 
-const COUNT_ISSUED_DELIVERIES_FOR_ORDER_SQL = 'SELECT count(*)::int AS count FROM issued_deliveries WHERE order_id = $1';
+const COUNT_ISSUED_DELIVERIES_FOR_ORDER_SQL =
+  'SELECT count(*)::int AS count FROM issued_deliveries WHERE order_id = $1';
 
-const COUNT_LEDGER_TXNS_SQL = 'SELECT count(*)::int AS count FROM ledger_txns WHERE order_id = $1 AND kind = $2';
+const COUNT_LEDGER_TXNS_SQL =
+  'SELECT count(*)::int AS count FROM ledger_txns WHERE order_id = $1 AND kind = $2';
 
 const DELETE_STOCK_KEYS_FOR_SKU_SQL = `
   DELETE FROM stock_keys WHERE product_id = (SELECT id FROM products WHERE sku = $1)
@@ -153,7 +157,11 @@ async function payOrder(extId: string, amountMajor: number, eventId: string): Pr
   expect(body.order_status).toBe(ORDER_STATUS.PAID);
 }
 
-async function createPaidOrder(sku: string, amountMajor: number, eventId: string): Promise<IOrderRow> {
+async function createPaidOrder(
+  sku: string,
+  amountMajor: number,
+  eventId: string,
+): Promise<IOrderRow> {
   const extId = await createOrder(sku);
 
   await payOrder(extId, amountMajor, eventId);
@@ -201,7 +209,10 @@ async function fetchSkuStock(sku: string): Promise<ISkuStockRow> {
 }
 
 async function fetchProductInStock(sku: string): Promise<boolean> {
-  const rows = await harness.dataSource.query<{ in_stock: boolean }[]>(SELECT_PRODUCT_IN_STOCK_SQL, [sku]);
+  const rows = await harness.dataSource.query<{ in_stock: boolean }[]>(
+    SELECT_PRODUCT_IN_STOCK_SQL,
+    [sku],
+  );
   const row = rows[0];
 
   if (row === undefined) {
@@ -216,13 +227,17 @@ async function fetchStockKeysForOrder(orderId: number): Promise<IStockKeyRow[]> 
 }
 
 async function fetchIssuedDelivery(orderId: number): Promise<IIssuedDeliveryRow | null> {
-  const rows = await harness.dataSource.query<IIssuedDeliveryRow[]>(SELECT_ISSUED_DELIVERY_SQL, [orderId]);
+  const rows = await harness.dataSource.query<IIssuedDeliveryRow[]>(SELECT_ISSUED_DELIVERY_SQL, [
+    orderId,
+  ]);
 
   return rows[0] ?? null;
 }
 
 async function countIssuedDeliveries(orderId: number): Promise<number> {
-  const rows = await harness.dataSource.query<ICountRow[]>(COUNT_ISSUED_DELIVERIES_FOR_ORDER_SQL, [orderId]);
+  const rows = await harness.dataSource.query<ICountRow[]>(COUNT_ISSUED_DELIVERIES_FOR_ORDER_SQL, [
+    orderId,
+  ]);
   const row = rows[0];
 
   if (row === undefined) {
@@ -265,7 +280,10 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     const order = await createPaidOrder(POOL_SKU, POOL_SKU_AMOUNT_MAJOR, 'evt_pool_happy');
     const deliveryService = harness.get(DeliveryService);
 
-    const result = await deliveryService.deliver({ orderId: order.id, generation: order.delivery_generation });
+    const result = await deliveryService.deliver({
+      orderId: order.id,
+      generation: order.delivery_generation,
+    });
 
     expect(result.outcome).toBe('delivered');
     expect(result.code).not.toBeNull();
@@ -300,7 +318,10 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     const deliveryService = harness.get(DeliveryService);
     const input = { orderId: order.id, generation: order.delivery_generation };
 
-    const [first, second] = await Promise.all([deliveryService.deliver(input), deliveryService.deliver(input)]);
+    const [first, second] = await Promise.all([
+      deliveryService.deliver(input),
+      deliveryService.deliver(input),
+    ]);
 
     expect(first.code).toBe(second.code);
     expect([first.outcome, second.outcome].sort()).toEqual(['already_delivered', 'delivered']);
@@ -319,7 +340,10 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     await drainAllKeys(DRAIN_SKU);
 
     const deliveryService = harness.get(DeliveryService);
-    const result = await deliveryService.deliver({ orderId: order.id, generation: order.delivery_generation });
+    const result = await deliveryService.deliver({
+      orderId: order.id,
+      generation: order.delivery_generation,
+    });
 
     expect(result).toEqual({ outcome: 'out_of_stock', code: null });
 
@@ -354,12 +378,15 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     try {
       // держим единственный свободный ключ: SKIP LOCKED у доставки его пропустит,
       // но статус ключа остаётся 'available', то есть остаток реально есть
-      const locked = await holder.query(LOCK_AVAILABLE_KEYS_SQL, [DRAIN_SKU]);
+      const locked = (await holder.query(LOCK_AVAILABLE_KEYS_SQL, [DRAIN_SKU])) as unknown[];
 
       expect(locked).toHaveLength(1);
 
       const deliveryService = harness.get(DeliveryService);
-      const result = await deliveryService.deliver({ orderId: order.id, generation: order.delivery_generation });
+      const result = await deliveryService.deliver({
+        orderId: order.id,
+        generation: order.delivery_generation,
+      });
 
       expect(result).toEqual({ outcome: 'out_of_stock', code: null });
 
@@ -457,7 +484,10 @@ describe('pool delivery (WORKER_ENABLED=false, direct DeliveryService calls)', (
     const order = await createPaidOrder(POOL_SKU, POOL_SKU_AMOUNT_MAJOR, 'evt_pool_stale_gen');
     const deliveryService = harness.get(DeliveryService);
 
-    const result = await deliveryService.deliver({ orderId: order.id, generation: order.delivery_generation + 1 });
+    const result = await deliveryService.deliver({
+      orderId: order.id,
+      generation: order.delivery_generation + 1,
+    });
 
     expect(result).toEqual({ outcome: 'skipped', code: null });
     expect(await countIssuedDeliveries(order.id)).toBe(0);

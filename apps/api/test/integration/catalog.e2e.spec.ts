@@ -180,7 +180,10 @@ describe('GET /catalog', () => {
     const everything = await get<CatalogPageResponseDto>('/catalog?in_stock=false');
 
     expect(everything.body.items).toHaveLength(12);
-    expect(itemBySku(everything.body, 'KEY-GTA5')).toMatchObject({ available_count: 0, in_stock: false });
+    expect(itemBySku(everything.body, 'KEY-GTA5')).toMatchObject({
+      available_count: 0,
+      in_stock: false,
+    });
   });
 
   it('never lists an inactive product, even with in_stock=false', async () => {

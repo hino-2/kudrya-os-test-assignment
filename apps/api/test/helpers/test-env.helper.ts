@@ -48,7 +48,10 @@ function databaseNameOf(url: string): string {
 function assertTestDatabase(url: string): void {
   const name = databaseNameOf(url);
 
-  if (TEST_DATABASE_NAME_PATTERN.test(name) || readEnv(DESTRUCTIVE_TESTS_VAR) === DESTRUCTIVE_TESTS_OPT_OUT) {
+  if (
+    TEST_DATABASE_NAME_PATTERN.test(name) ||
+    readEnv(DESTRUCTIVE_TESTS_VAR) === DESTRUCTIVE_TESTS_OPT_OUT
+  ) {
     return;
   }
 

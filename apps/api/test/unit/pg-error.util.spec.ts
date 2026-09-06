@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { isLockTimeout, isPgError, isRetryableTxError, isUniqueViolation, pgErrorCode } from '../../src/common/db/pg-error.util';
+import {
+  isLockTimeout,
+  isPgError,
+  isRetryableTxError,
+  isUniqueViolation,
+  pgErrorCode,
+} from '../../src/common/db/pg-error.util';
 
 describe('pg-error.util', () => {
   describe('isPgError / pgErrorCode', () => {

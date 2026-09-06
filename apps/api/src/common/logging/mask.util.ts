@@ -1,4 +1,8 @@
-import { CODE_MASK_CHAR, CODE_VISIBLE_PREFIX_LEN, CODE_VISIBLE_SUFFIX_LEN } from './logging.constants';
+import {
+  CODE_MASK_CHAR,
+  CODE_VISIBLE_PREFIX_LEN,
+  CODE_VISIBLE_SUFFIX_LEN,
+} from './logging.constants';
 
 export function maskCode(code: string): string {
   return code

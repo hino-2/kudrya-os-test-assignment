@@ -38,7 +38,9 @@ describe('products price granularity', () => {
     }
 
     expect((caught as { code?: string } | null)?.code).toBe(PG_ERROR_CODE.CHECK_VIOLATION);
-    expect((caught as { constraint?: string } | null)?.constraint).toBe('products_price_granularity_ck');
+    expect((caught as { constraint?: string } | null)?.constraint).toBe(
+      'products_price_granularity_ck',
+    );
   });
 
   it('accepts a whole major price', async () => {

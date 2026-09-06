@@ -15,6 +15,10 @@
 | `DB_STATEMENT_TIMEOUT_MS` | int | `10000` | session `statement_timeout` — a runaway query can never hold a lock forever |
 | `DB_LOCK_TIMEOUT_MS` | int | `5000` | session `lock_timeout` — bounds `FOR UPDATE` waits under the 50-way race |
 | `DB_TX_RETRY_ATTEMPTS` | int | `3` | retries on SQLSTATE `40001`/`40P01` |
+
+Not env-driven but worth stating, since it has observable behaviour: the pool also sets `connectionTimeoutMillis = 10000`. Without it an acquire against a saturated pool waits **forever** rather than failing — which is how a `DB_POOL_SIZE=1` migration run managed to hang a container silently instead of erroring. Failing there costs nothing real, because every transaction in this codebase is short and single-purpose and no HTTP call happens inside one — the supplier call sits *between* two committed transactions — so a 10 s queue wait means the database is effectively unavailable, and an error beats silence. (The tempting justification — "the caller already blew its `statement_timeout`" — is wrong: `statement_timeout` is per statement, not a request deadline, so a request may legitimately exceed 10 s of wall clock across several statements.) The migration lock client sets the same value on its own connection, for the same reason.
+
+
 | `LOG_LEVEL` | `debug\|info\|warn\|error` | `info` | minimum level |
 | `LOG_FORMAT` | `json\|pretty` | `json` | output format |
 | `LOG_STACK` | bool | `false` | include stack traces |

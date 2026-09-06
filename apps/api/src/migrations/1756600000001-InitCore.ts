@@ -114,7 +114,9 @@ export class InitCore1756600000001 implements MigrationInterface {
         WHERE status IN ('out_of_stock','delivery_failed','delivering');
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_orders_status_created ON orders (status, created_at DESC);`);
+    await queryRunner.query(
+      `CREATE INDEX idx_orders_status_created ON orders (status, created_at DESC);`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

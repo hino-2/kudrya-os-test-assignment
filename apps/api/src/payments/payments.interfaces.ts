@@ -1,6 +1,11 @@
 import type { CurrencyCode, MinorAmount } from '../common/money/money.type';
 import type { OrderStatus } from '../orders/orders.type';
-import type { PaymentEventState, PaymentStatus, RawWebhookPayload, WebhookResult } from './payments.type';
+import type {
+  PaymentEventState,
+  PaymentStatus,
+  RawWebhookPayload,
+  WebhookResult,
+} from './payments.type';
 
 export interface IOrphanEventRow {
   id: number;

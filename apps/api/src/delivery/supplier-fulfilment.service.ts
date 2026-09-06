@@ -14,9 +14,17 @@ import { LedgerService } from '../ledger/ledger.service';
 import { buildBalancedLegs, buildDeliveryRecognizedKey } from '../ledger/ledger.util';
 import { ORDER_STATUS } from '../orders/orders.constants';
 import { OrdersRepository } from '../orders/orders.repository';
-import { pickSupplier, resolveExhaustedOutcome, buildSupplierFailureReason } from '../suppliers/supplier-plan.util';
+import {
+  pickSupplier,
+  resolveExhaustedOutcome,
+  buildSupplierFailureReason,
+} from '../suppliers/supplier-plan.util';
 import { SupplierClient } from '../suppliers/supplier.client';
-import { SUPPLIER_ERROR_KIND, SUPPLIER_MISSING_ERROR_KIND_MESSAGE, SUPPLIER_OUTCOME } from '../suppliers/suppliers.constants';
+import {
+  SUPPLIER_ERROR_KIND,
+  SUPPLIER_MISSING_ERROR_KIND_MESSAGE,
+  SUPPLIER_OUTCOME,
+} from '../suppliers/suppliers.constants';
 import type { ISupplierIssueResult } from '../suppliers/suppliers.interfaces';
 import type { SupplierErrorKind } from '../suppliers/suppliers.type';
 import { buildSupplierRequestId } from '../suppliers/suppliers.util';
@@ -107,7 +115,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       // из prepareStep в resolve-ветку settleStep
       const outcome =
         via === SETTLE_VIA.RESOLVE
-          ? await this.supplierClient.lookup(prepared.attempt.supplier_code, prepared.attempt.request_id)
+          ? await this.supplierClient.lookup(
+              prepared.attempt.supplier_code,
+              prepared.attempt.request_id,
+            )
           : await this.supplierClient.issue({
               supplierCode: prepared.attempt.supplier_code,
               requestId: prepared.attempt.request_id,
@@ -146,14 +157,21 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   // job.attempts достигает job.max_attempts на последней попытке воркера (см. job-worker.service.ts) —
   // без этой проверки джоба уходит в dead, а заказ остаётся в delivering навсегда
   private isLastAttempt(input: IFulfilInput): boolean {
-    return input.attempts !== undefined && input.maxAttempts !== undefined && input.attempts >= input.maxAttempts;
+    return (
+      input.attempts !== undefined &&
+      input.maxAttempts !== undefined &&
+      input.attempts >= input.maxAttempts
+    );
   }
 
   // принудительное терминальное завершение на последней попытке джобы — отдельная транзакция,
   // т.к. вызывается вместо throw из середины fulfil(), без уже открытого QueryRunner.
   // null означает «объявлять терминальный исход нельзя»: цепочка поставщиков ещё не исчерпана,
   // и вызывающий обязан бросить исключение, как бросил бы на любой другой попытке
-  private async forceDeliveryFailedIfExhausted(input: IFulfilInput, note: string): Promise<IDeliveryResult | null> {
+  private async forceDeliveryFailedIfExhausted(
+    input: IFulfilInput,
+    note: string,
+  ): Promise<IDeliveryResult | null> {
     return this.unitOfWork.withTransaction(async (qr) => {
       const order = await this.deliveryRepository.lockOrderForDelivery(qr, input.orderId);
 
@@ -185,7 +203,11 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       // второе предусловие: пока pickSupplier возвращает выбор, «отказали все» тоже ложно — до
       // кого-то просто не дошла очередь в пределах бюджета джобы (неоднозначный 5xx стоит
       // поставщику unknownMaxResolveAttempts + 1 прогонов)
-      const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(qr, order.id, order.generation);
+      const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(
+        qr,
+        order.id,
+        order.generation,
+      );
 
       if (pickSupplier(attempts, this.config.supplier.maxAttemptsPerSupplier) !== null) {
         return null;
@@ -230,8 +252,17 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     // 0 строк — сломанный инвариант с худшим режимом отказа: issued_deliveries записан,
     // orders.status отстал, и свипер пере-ставит уже выданный заказ в очередь
     if (order.status === ORDER_STATUS.PAID) {
-      this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
-      await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});
+      this.logger.event(LOG_EVENT.DELIVERY_STARTED, {
+        order_id: order.id,
+        generation: order.generation,
+      });
+      await this.ordersRepository.transition(
+        qr,
+        order.id,
+        ORDER_STATUS.PAID,
+        ORDER_STATUS.DELIVERING,
+        {},
+      );
     }
 
     const resumed = await this.resumeOpenAttempt(qr, order);
@@ -246,7 +277,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   }
 
   // идемпотентные исходы для заказов, уже прошедших через доставку в предыдущей попытке
-  private async handleTerminalStatus(qr: QueryRunner, order: ILockedOrderRow): Promise<IDeliveryResult | null> {
+  private async handleTerminalStatus(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<IDeliveryResult | null> {
     if (order.status === ORDER_STATUS.DELIVERED) {
       const issued = await this.deliveryRepository.findIssuedDelivery(qr, order.id);
 
@@ -265,7 +299,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   // выяснить авторитетным GET /issue/:request_id. Попытка переводится в in_flight в обоих
   // случаях: без этого CAS finalizeSucceeded/finalizeFailed не совпадёт, а свипер (pass 5a)
   // мог бы демотировать её прямо во время вызова
-  private async resumeOpenAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<IResumedOpenAttempt | null> {
+  private async resumeOpenAttempt(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<IResumedOpenAttempt | null> {
     const open = await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id);
 
     if (open === null) {
@@ -293,8 +330,15 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     return { attempt: resumed, needsLookup };
   }
 
-  private async pickNextAttempt(qr: QueryRunner, order: ILockedOrderRow): Promise<PrepareStepResult> {
-    const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(qr, order.id, order.generation);
+  private async pickNextAttempt(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+  ): Promise<PrepareStepResult> {
+    const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(
+      qr,
+      order.id,
+      order.generation,
+    );
     const choice = pickSupplier(attempts, this.config.supplier.maxAttemptsPerSupplier);
 
     if (choice === null) {
@@ -311,7 +355,12 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       });
     }
 
-    const requestId = buildSupplierRequestId(order.ext_id, order.generation, choice.supplierCode, choice.attemptNo);
+    const requestId = buildSupplierRequestId(
+      order.ext_id,
+      order.generation,
+      choice.supplierCode,
+      choice.attemptNo,
+    );
     const inserted = await this.deliveryAttemptRepository.insertAttempt(qr, {
       orderId: order.id,
       supplierCode: choice.supplierCode,
@@ -321,7 +370,8 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       deliveryGeneration: order.generation,
     });
     // ON CONFLICT(order_id) DO NOTHING мог сработать из-за гонки — строка уже есть, перечитываем
-    const attempt = inserted ?? (await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id));
+    const attempt =
+      inserted ?? (await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id));
 
     if (attempt === null) {
       throw new DomainError(ERROR_CODE.INTERNAL_ERROR, DELIVERY_ATTEMPT_LOST_MESSAGE);
@@ -337,8 +387,15 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     return { kind: 'attempt', attempt, order };
   }
 
-  private async finalizeExhausted(qr: QueryRunner, order: ILockedOrderRow, attempts: IDeliveryAttemptRow[]): Promise<PrepareStepResult> {
-    return { kind: 'terminal', result: await this.applyExhaustedOutcome(qr, order, attempts, null) };
+  private async finalizeExhausted(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+    attempts: IDeliveryAttemptRow[],
+  ): Promise<PrepareStepResult> {
+    return {
+      kind: 'terminal',
+      result: await this.applyExhaustedOutcome(qr, order, attempts, null),
+    };
   }
 
   // единственное место, где исчерпанная цепочка превращается в терминальный статус: и штатный
@@ -358,10 +415,19 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     const exhaustedOutcome = resolveExhaustedOutcome(attempts);
 
     if (exhaustedOutcome === DELIVERY_OUTCOME.OUT_OF_STOCK) {
-      await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.OUT_OF_STOCK, {
-        failureReason: DELIVERY_OUT_OF_STOCK_REASON,
+      await this.ordersRepository.transition(
+        qr,
+        order.id,
+        ORDER_STATUS.DELIVERING,
+        ORDER_STATUS.OUT_OF_STOCK,
+        {
+          failureReason: DELIVERY_OUT_OF_STOCK_REASON,
+        },
+      );
+      this.logger.event(LOG_EVENT.DELIVERY_OUT_OF_STOCK, {
+        order_id: order.id,
+        generation: order.generation,
       });
-      this.logger.event(LOG_EVENT.DELIVERY_OUT_OF_STOCK, { order_id: order.id, generation: order.generation });
 
       return { outcome: DELIVERY_OUTCOME.OUT_OF_STOCK, code: null };
     }
@@ -369,9 +435,15 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     const summary = buildSupplierFailureReason(attempts);
     const reason = note === null ? summary : `${summary} (${note})`;
 
-    await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERY_FAILED, {
-      failureReason: reason,
-    });
+    await this.ordersRepository.transition(
+      qr,
+      order.id,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.DELIVERY_FAILED,
+      {
+        failureReason: reason,
+      },
+    );
     this.logger.event(LOG_EVENT.DELIVERY_FAILED, { order_id: order.id, reason });
 
     return { outcome: DELIVERY_OUTCOME.DELIVERY_FAILED, code: null };
@@ -432,12 +504,18 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   // ждать его блокирующим sleep нельзя: воркер обрабатывает забранный батч последовательно,
   // поэтому один заказ под 5xx-штормом держал остальные джобы бюджет × поставщики. Ожидание
   // отдаётся очереди — run_at джобы уже умеет ровно это
-  private continueOrRetry(attempt: IDeliveryAttemptRow, errorKind: SupplierErrorKind): SettleStepResult {
+  private continueOrRetry(
+    attempt: IDeliveryAttemptRow,
+    errorKind: SupplierErrorKind,
+  ): SettleStepResult {
     if (errorKind !== SUPPLIER_ERROR_KIND.HTTP_5XX) {
       return { kind: 'continue' };
     }
 
-    return { kind: 'retry_required', message: buildSupplierUnavailableRetryMessage(attempt.supplier_code) };
+    return {
+      kind: 'retry_required',
+      message: buildSupplierUnavailableRetryMessage(attempt.supplier_code),
+    };
   }
 
   // CAS обеих финализаций (finalizeSucceeded/finalizeFailed) ждёт попытку строго в in_flight,
@@ -461,12 +539,18 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     outcome: ISupplierIssueResult,
     stale: boolean,
   ): Promise<SettleStepResult> {
-    const skipped: SettleStepResult = { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
+    const skipped: SettleStepResult = {
+      kind: 'terminal',
+      result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null },
+    };
     // проигранный CAS = строку увели (демоция свипером из in_flight в unknown, второй воркер).
     // Возвращать 'continue' здесь нельзя: needsLookup залипает (resolve_attempts только растёт),
     // и цикл ушёл бы в непрерывные GET без sleep до конца бюджета джобы. Повтор задачи, наоборот,
     // перечитает состояние под бэкоффом уровня джобы
-    const conflict: SettleStepResult = { kind: 'retry_required', message: DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE };
+    const conflict: SettleStepResult = {
+      kind: 'retry_required',
+      message: DELIVERY_ATTEMPT_RESOLVE_CONFLICT_MESSAGE,
+    };
 
     if (outcome.errorKind === SUPPLIER_ERROR_KIND.NOT_ISSUED) {
       // сохраняем ИСХОДНЫЙ error_kind попытки: именно по нему isRetriableSameSupplier решает,
@@ -504,7 +588,11 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     // поставщик не ответил ни на бюджет слепых POST, ни на один авторитетный GET. Осознанный
     // остаточный риск: оставить оплаченный заказ навсегда недоставляемым хуже, чем громко
     // залогировать зависшую выдачу и отдать заказ следующему поставщику в этом же прогоне
-    const abandoned = await this.deliveryAttemptRepository.markAbandoned(qr, attempt.id, attempt.started_at);
+    const abandoned = await this.deliveryAttemptRepository.markAbandoned(
+      qr,
+      attempt.id,
+      attempt.started_at,
+    );
 
     if (!abandoned) {
       return conflict;
@@ -580,17 +668,28 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       throw new DomainError(ERROR_CODE.INTERNAL_ERROR, ISSUED_DELIVERY_LOST_MESSAGE);
     }
 
-    await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERED, {
-      deliveredAt: new Date(),
-    });
+    await this.ordersRepository.transition(
+      qr,
+      order.id,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.DELIVERED,
+      {
+        deliveredAt: new Date(),
+      },
+    );
 
     await this.ledgerService.postTxn(qr, {
       kind: LEDGER_TXN_KIND.DELIVERY_RECOGNIZED,
       idempotencyKey: buildDeliveryRecognizedKey(order.ext_id, order.generation),
       orderId: order.id,
-      legs: buildBalancedLegs(LEDGER_TXN_KIND.DELIVERY_RECOGNIZED, order.amount_minor, order.currency, {
-        orderId: order.id,
-      }),
+      legs: buildBalancedLegs(
+        LEDGER_TXN_KIND.DELIVERY_RECOGNIZED,
+        order.amount_minor,
+        order.currency,
+        {
+          orderId: order.id,
+        },
+      ),
     });
 
     this.logger.event(LOG_EVENT.DELIVERY_ATTEMPT_SUCCEEDED, {
@@ -598,7 +697,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       supplier_code: attempt.supplier_code,
       request_id: attempt.request_id,
     });
-    this.logger.event(LOG_EVENT.DELIVERY_COMPLETED, { order_id: order.id, generation: order.generation });
+    this.logger.event(LOG_EVENT.DELIVERY_COMPLETED, {
+      order_id: order.id,
+      generation: order.generation,
+    });
 
     return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.DELIVERED, code: row.code } };
   }
@@ -650,7 +752,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     // потолок unknownMaxResolveAttempts больше не означает «сдаться»: это переключатель со
     // слепого POST-реплея на авторитетный GET. Следующий прогон джобы войдёт в resolve-путь
     // (см. resumeOpenAttempt) — отказ принимает только он
-    return { kind: 'retry_required', message: buildDeliveryAttemptUnknownRetryMessage(attempt.request_id) };
+    return {
+      kind: 'retry_required',
+      message: buildDeliveryAttemptUnknownRetryMessage(attempt.request_id),
+    };
   }
 
   // errorKind контрактно не null во всех исходах кроме issued (см. classifySupplierHttpStatus /

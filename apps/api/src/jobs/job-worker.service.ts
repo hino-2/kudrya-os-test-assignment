@@ -89,26 +89,41 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
     // claim коммитится отдельной транзакцией до запуска обработчика: state='running' и attempts+1
     // должны быть видны другим воркерам и переживать падение обработчика
     const claimed = await this.unitOfWork.withTransaction((qr) =>
-      this.queue.claim(qr, { workerId: this.config.jobs.workerId, limit: this.config.jobs.batchSize }),
+      this.queue.claim(qr, {
+        workerId: this.config.jobs.workerId,
+        limit: this.config.jobs.batchSize,
+      }),
     );
-    const result: IWorkerCycleResult = { claimed: claimed.length, succeeded: 0, failed: 0, dead: 0 };
+    const result: IWorkerCycleResult = {
+      claimed: claimed.length,
+      succeeded: 0,
+      failed: 0,
+      dead: 0,
+    };
 
     for (const job of claimed) {
-      await this.logger.withCorrelation({ trace_id: job.trace_id ?? undefined, job_id: job.id }, async () => {
-        this.logger.event(LOG_EVENT.JOB_CLAIMED, { job_id: job.id, kind: job.kind, attempts: job.attempts });
+      await this.logger.withCorrelation(
+        { trace_id: job.trace_id ?? undefined, job_id: job.id },
+        async () => {
+          this.logger.event(LOG_EVENT.JOB_CLAIMED, {
+            job_id: job.id,
+            kind: job.kind,
+            attempts: job.attempts,
+          });
 
-        const outcome = await this.processJob(job);
+          const outcome = await this.processJob(job);
 
-        if (outcome === 'succeeded') {
-          result.succeeded += 1;
-        } else {
-          result.failed += 1;
+          if (outcome === 'succeeded') {
+            result.succeeded += 1;
+          } else {
+            result.failed += 1;
 
-          if (job.attempts >= job.max_attempts) {
-            result.dead += 1;
+            if (job.attempts >= job.max_attempts) {
+              result.dead += 1;
+            }
           }
-        }
-      });
+        },
+      );
     }
 
     return result;
@@ -176,7 +191,7 @@ export class JobWorkerService implements OnApplicationBootstrap, OnModuleDestroy
     }
   }
 
-  private async settle(job: IJobRow, error: unknown | null): Promise<void> {
+  private async settle(job: IJobRow, error: unknown): Promise<void> {
     if (error === null) {
       const applied = await this.unitOfWork.withTransaction((qr) =>
         this.queue.complete(qr, job.id, job.locked_by),

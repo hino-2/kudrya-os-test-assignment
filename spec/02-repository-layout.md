@@ -9,6 +9,8 @@ kudrya-os-test-assignment/
 ├── tsconfig.base.json                        # strict TS settings shared by all workspaces
 ├── eslint.config.mjs                         # flat config, incl. padding-line-between-statements
 ├── .prettierrc.json
+├── .prettierignore                           # docs (hand-laid-out markdown), lockfile, build dirs
+├── .gitattributes                            # * text=auto eol=lf — without it format:check disagrees locally vs CI
 ├── .editorconfig
 ├── .gitignore
 ├── .env.example                              # every env var of every service, documented
@@ -49,6 +51,7 @@ kudrya-os-test-assignment/
 │   │   │   ├── db/
 │   │   │   │   ├── database.module.ts        # TypeOrmModule.forRootAsync
 │   │   │   │   ├── data-source.ts            # DataSource for TypeORM CLI + app
+│   │   │   │   ├── migrate.ts                # migration runner under pg_advisory_lock (see below)
 │   │   │   │   ├── unit-of-work.service.ts   # withTransaction(fn(qr)), READ COMMITTED
 │   │   │   │   ├── pg-error.util.ts          # isUniqueViolation(e), PG error codes
 │   │   │   │   ├── db.constants.ts           # PG_ERROR_CODE.*, ISOLATION_LEVEL
@@ -255,7 +258,8 @@ kudrya-os-test-assignment/
 "test:unit"            -> npm run -w apps/api test:unit && npm run -w apps/supplier-stub test
 "test:integration"     -> npm run -w apps/api test:integration
 "test"                 -> npm run test:unit && npm run test:integration
-"migration:run"        -> npm run -w apps/api migration:run
+"migration:run"        -> npm run -w apps/api migration:run   # tsx src/common/db/migrate.ts, not the typeorm CLI
+"format" / "format:check" -> prettier --write . / --check .
 "migration:revert"     -> npm run -w apps/api migration:revert
 "seed:catalog"         -> tsx tools/src/seed-catalog.ts
 "seed:bench"           -> tsx tools/src/seed-bench.ts
@@ -264,6 +268,10 @@ kudrya-os-test-assignment/
 "webhook"              -> tsx tools/src/webhook.ts
 "demo:fallback"        -> tsx tools/src/demo-fallback.ts
 ```
+
+`seed:bench` and `bench:explain` are stage-5 placeholders whose scripts do not exist yet — see finding L3.
+
+**Why `migration:run` is a script and not the TypeORM CLI.** Two api replicas starting against an empty `migrations` table run migrations concurrently, and TypeORM takes no lock across the run. Serialising it needs a session-scoped `pg_advisory_lock`, and that cannot be done from the shell entrypoint: a lock taken by a `psql` invocation dies with that process, so the migration that follows would run unlocked. `migrate.ts` therefore holds the lock on a standalone `pg.Client` built from `DATABASE_URL` — **outside the connection pool entirely** — for the whole `runMigrations()` call, and sets `lock_timeout`/`statement_timeout` on that session high enough that replica #2 **queues** instead of aborting the wait (with the 5 s default it would crash and the lock would be decorative). A pool `QueryRunner` was the obvious first choice and was wrong: `DB_POOL_SIZE` is validated `min: 1`, and at that legal value the lock connection is the only one there is, so `runMigrations()` waits forever for a second — the container hangs before starting the app, with no error and no non-zero exit, while holding the lock every other replica is queued behind. Note the 120 s bounds only the *wait for the lock*; the migrations run on pool connections and a DDL statement longer than `DB_STATEMENT_TIMEOUT_MS` still aborts them. There is no explicit `pg_advisory_unlock` and that is deliberate, not an oversight: a session-level lock is released when the session closes, and the client is `end()`ed on every exit path — an explicit unlock bought nothing and added a path where a failing unlock replaced the real migration error. The client also carries `connectionTimeoutMillis` and an `'error'` listener; without the latter a FATAL on the idle lock session becomes an unhandled `'error'` event and kills the process with a raw stack instead of the migration's own message. The key is the ASCII of `"store"`, fixed across releases because a key that changes serialises nothing; it cannot collide, since every other lock in this codebase is a row-level `FOR UPDATE`.
 
 ### 2.1 Code-style and documentation conventions
 

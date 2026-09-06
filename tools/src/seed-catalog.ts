@@ -36,7 +36,13 @@ import {
   VERIFY_KEY_COUNT_MESSAGE,
   VERIFY_PRODUCT_COUNT_MESSAGE,
 } from './seed-catalog.constants';
-import type { IKeysFile, IProductSeed, IProductsFile, ISeedSummary, ISeedVerifyRow } from './seed-catalog.interfaces';
+import type {
+  IKeysFile,
+  IProductSeed,
+  IProductsFile,
+  ISeedSummary,
+  ISeedVerifyRow,
+} from './seed-catalog.interfaces';
 import type { SeedFulfillmentMode, SeedProductType } from './seed-catalog.type';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -80,13 +86,19 @@ function readProductsFile(): IProductsFile {
     throw new Error(`${INVALID_FILE_MESSAGE}: ${PRODUCTS_FILE}`);
   }
 
-  return { products: parsed.products.map((entry: unknown, index: number) => toProductSeed(entry, index)) };
+  return {
+    products: parsed.products.map((entry: unknown, index: number) => toProductSeed(entry, index)),
+  };
 }
 
 function readKeysFile(): IKeysFile {
   const parsed = readJsonFile(KEYS_FILE);
 
-  if (!isRecord(parsed) || !Array.isArray(parsed.keys) || parsed.keys.some((code: unknown) => typeof code !== 'string')) {
+  if (
+    !isRecord(parsed) ||
+    !Array.isArray(parsed.keys) ||
+    parsed.keys.some((code: unknown) => typeof code !== 'string')
+  ) {
     throw new Error(`${INVALID_FILE_MESSAGE}: ${KEYS_FILE}`);
   }
 
@@ -108,10 +120,16 @@ function keysForSku(sku: string, keys: string[]): string[] {
 }
 
 function fulfillmentModeFor(type: SeedProductType): SeedFulfillmentMode {
-  return type === SEED_PRODUCT_TYPE.KEY ? SEED_FULFILLMENT_MODE.POOL : SEED_FULFILLMENT_MODE.SUPPLIER;
+  return type === SEED_PRODUCT_TYPE.KEY
+    ? SEED_FULFILLMENT_MODE.POOL
+    : SEED_FULFILLMENT_MODE.SUPPLIER;
 }
 
-async function upsertProduct(client: Client, product: IProductSeed, mode: SeedFulfillmentMode): Promise<number> {
+async function upsertProduct(
+  client: Client,
+  product: IProductSeed,
+  mode: SeedFulfillmentMode,
+): Promise<number> {
   const priceMinor = toSafeInt(product.price * MINOR_UNITS_PER_MAJOR, `${product.sku}.price_minor`);
   const result = await client.query<{ id: string }>(SEED_PRODUCT_UPSERT_SQL, [
     product.sku,
@@ -135,7 +153,12 @@ async function insertKeys(client: Client, productId: number, codes: string[]): P
   await client.query(SEED_KEYS_INSERT_SQL, [productId, codes, SEED_BATCH]);
 }
 
-async function upsertStock(client: Client, productId: number, mode: SeedFulfillmentMode, virtualStock: number): Promise<void> {
+async function upsertStock(
+  client: Client,
+  productId: number,
+  mode: SeedFulfillmentMode,
+  virtualStock: number,
+): Promise<void> {
   if (mode === SEED_FULFILLMENT_MODE.POOL) {
     await client.query(SEED_SKU_STOCK_POOL_SQL, [productId]);
 
@@ -145,7 +168,12 @@ async function upsertStock(client: Client, productId: number, mode: SeedFulfillm
   await client.query(SEED_SKU_STOCK_SUPPLIER_SQL, [productId, virtualStock]);
 }
 
-async function seedProduct(client: Client, product: IProductSeed, keys: string[], virtualStock: number): Promise<void> {
+async function seedProduct(
+  client: Client,
+  product: IProductSeed,
+  keys: string[],
+  virtualStock: number,
+): Promise<void> {
   const mode = fulfillmentModeFor(product.type);
   const productId = await upsertProduct(client, product, mode);
 
@@ -161,7 +189,9 @@ async function verify(client: Client, products: IProductSeed[]): Promise<ISeedVe
   const result = await client.query<ISeedVerifyRow>(SEED_VERIFY_SQL, [skus]);
 
   if (result.rows.length !== products.length) {
-    throw new Error(`${VERIFY_PRODUCT_COUNT_MESSAGE}: ожидалось ${products.length}, получено ${result.rows.length}`);
+    throw new Error(
+      `${VERIFY_PRODUCT_COUNT_MESSAGE}: ожидалось ${products.length}, получено ${result.rows.length}`,
+    );
   }
 
   for (const slice of KEY_DISTRIBUTION) {
@@ -227,7 +257,11 @@ async function main(): Promise<void> {
   loadDotEnv();
 
   const databaseUrl = requireEnv(DATABASE_URL_VAR);
-  const virtualStock = intEnv(SUPPLIER_VIRTUAL_STOCK_VAR, DEFAULT_SUPPLIER_VIRTUAL_STOCK, MIN_SUPPLIER_VIRTUAL_STOCK);
+  const virtualStock = intEnv(
+    SUPPLIER_VIRTUAL_STOCK_VAR,
+    DEFAULT_SUPPLIER_VIRTUAL_STOCK,
+    MIN_SUPPLIER_VIRTUAL_STOCK,
+  );
   const productsFile = readProductsFile();
   const keysFile = readKeysFile();
   const client = await connectClient(databaseUrl);

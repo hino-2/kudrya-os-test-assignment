@@ -35,7 +35,10 @@ describe('JsonLogger', () => {
   it('stamps the record with trace_id taken from the correlation store', () => {
     const { lines, sink } = createSink();
     const store = new CorrelationStore();
-    const logger = new JsonLogger({ level: 'info', format: 'json', includeStack: false, sink }, store);
+    const logger = new JsonLogger(
+      { level: 'info', format: 'json', includeStack: false, sink },
+      store,
+    );
 
     store.run({ trace_id: 'req-123' }, () => {
       logger.write({ level: 'info', event: 'order.created' });
@@ -114,7 +117,11 @@ describe('JsonLogger', () => {
     const logger = new JsonLogger({ level: 'info', format: 'json', includeStack: false, sink });
     const shared = { sku: 'ABC-1', qty: 2 };
 
-    logger.write({ level: 'info', event: 'order.created', data: { before: shared, after: shared } });
+    logger.write({
+      level: 'info',
+      event: 'order.created',
+      data: { before: shared, after: shared },
+    });
 
     const record = JSON.parse(lines[0].trimEnd()) as ILogRecord;
 
@@ -128,7 +135,9 @@ describe('JsonLogger', () => {
 
     circular.self = circular;
 
-    expect(() => logger.write({ level: 'info', event: 'order.created', data: { circular } })).not.toThrow();
+    expect(() =>
+      logger.write({ level: 'info', event: 'order.created', data: { circular } }),
+    ).not.toThrow();
 
     const record = JSON.parse(lines[0].trimEnd()) as ILogRecord;
 
@@ -142,7 +151,7 @@ describe('JsonLogger', () => {
     logger.write({ level: 'info', event: 'order.created', ctx: 'OrdersService' });
 
     expect(lines).toHaveLength(1);
-    expect(() => JSON.parse(lines[0])).toThrow();
+    expect(() => JSON.parse(lines[0]) as unknown).toThrow();
     expect(lines[0]).toContain('INFO');
     expect(lines[0]).toContain('[OrdersService]');
     expect(lines[0]).toContain('order.created');

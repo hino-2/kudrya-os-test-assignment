@@ -16,6 +16,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
+      # eslint-config-prettier только отключает конфликтующие правила, форматирование
+      # не проверяет — поэтому отдельный шаг с самим prettier
+      - run: npm run format:check
 
   typecheck:
     runs-on: ubuntu-latest

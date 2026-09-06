@@ -31,9 +31,13 @@ export class InitJobs1756600000004 implements MigrationInterface {
         ON jobs (kind, dedupe_key) WHERE state IN ('pending','running');
     `);
 
-    await queryRunner.query(`CREATE INDEX idx_jobs_claim ON jobs (run_at, id) WHERE state = 'pending';`);
+    await queryRunner.query(
+      `CREATE INDEX idx_jobs_claim ON jobs (run_at, id) WHERE state = 'pending';`,
+    );
 
-    await queryRunner.query(`CREATE INDEX idx_jobs_stale ON jobs (locked_at) WHERE state = 'running';`);
+    await queryRunner.query(
+      `CREATE INDEX idx_jobs_stale ON jobs (locked_at) WHERE state = 'running';`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {

@@ -50,7 +50,8 @@ export async function seedCatalog(ds: DataSource): Promise<void> {
   const keys = readKeys();
 
   for (const product of products) {
-    const mode = product.type === PRODUCT_TYPE.KEY ? FULFILLMENT_MODE.POOL : FULFILLMENT_MODE.SUPPLIER;
+    const mode =
+      product.type === PRODUCT_TYPE.KEY ? FULFILLMENT_MODE.POOL : FULFILLMENT_MODE.SUPPLIER;
     const rows = await ds.query<{ id: number }[]>(SEED_PRODUCT_UPSERT_SQL, [
       product.sku,
       product.name,

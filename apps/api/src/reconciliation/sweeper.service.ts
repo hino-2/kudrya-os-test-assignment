@@ -106,7 +106,9 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
   // pass 1: джобы, зависшие в state='running' дольше config.jobs.lockTtlMs — тот же TTL,
   // что использует сам JobWorkerService
   private async reclaimStaleJobs(): Promise<number> {
-    return this.unitOfWork.withTransaction((qr) => this.jobQueue.requeueStale(qr, this.config.jobs.lockTtlMs));
+    return this.unitOfWork.withTransaction((qr) =>
+      this.jobQueue.requeueStale(qr, this.config.jobs.lockTtlMs),
+    );
   }
 
   // pass 2: paid/delivering дольше stuckOrderAgeSeconds без issued_deliveries и без живой
@@ -235,7 +237,10 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
   // applyPersistedEvent, что и живой вебхук, в той же транзакции, что держит блокировку строки
   private async replayOrphans(): Promise<number> {
     const count = await this.unitOfWork.withTransaction(async (qr) => {
-      const rows = await this.paymentEvents.findReplayableOrphans(qr, this.config.sweeper.batchSize);
+      const rows = await this.paymentEvents.findReplayableOrphans(
+        qr,
+        this.config.sweeper.batchSize,
+      );
 
       for (const row of rows) {
         const input: IPaymentEventInput = {

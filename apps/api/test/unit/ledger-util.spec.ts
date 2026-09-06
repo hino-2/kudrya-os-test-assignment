@@ -39,7 +39,11 @@ describe('ledger.util', () => {
     it('returns the shared currency for a balanced two-leg posting', () => {
       const legs = [
         leg({ account: ACCOUNT.CASH, direction: DIRECTION.DEBIT, amountMinor: 50000 }),
-        leg({ account: ACCOUNT.CUSTOMER_PREPAYMENT, direction: DIRECTION.CREDIT, amountMinor: 50000 }),
+        leg({
+          account: ACCOUNT.CUSTOMER_PREPAYMENT,
+          direction: DIRECTION.CREDIT,
+          amountMinor: 50000,
+        }),
       ];
 
       expect(assertPostableLegs(legs)).toBe('RUB');
@@ -49,8 +53,16 @@ describe('ledger.util', () => {
       const legs = [
         leg({ account: ACCOUNT.CASH, direction: DIRECTION.DEBIT, amountMinor: 30000 }),
         leg({ account: ACCOUNT.CASH, direction: DIRECTION.DEBIT, amountMinor: 20000 }),
-        leg({ account: ACCOUNT.CUSTOMER_PREPAYMENT, direction: DIRECTION.CREDIT, amountMinor: 10000 }),
-        leg({ account: ACCOUNT.CUSTOMER_PREPAYMENT, direction: DIRECTION.CREDIT, amountMinor: 40000 }),
+        leg({
+          account: ACCOUNT.CUSTOMER_PREPAYMENT,
+          direction: DIRECTION.CREDIT,
+          amountMinor: 10000,
+        }),
+        leg({
+          account: ACCOUNT.CUSTOMER_PREPAYMENT,
+          direction: DIRECTION.CREDIT,
+          amountMinor: 40000,
+        }),
       ];
 
       expect(assertPostableLegs(legs)).toBe('RUB');
@@ -103,7 +115,10 @@ describe('ledger.util', () => {
     });
 
     it('rejects mixed currencies', () => {
-      const legs = [leg({ currency: 'RUB' }), leg({ direction: DIRECTION.CREDIT, currency: 'USD' })];
+      const legs = [
+        leg({ currency: 'RUB' }),
+        leg({ direction: DIRECTION.CREDIT, currency: 'USD' }),
+      ];
 
       expect(thrownCode(() => assertPostableLegs(legs))).toBe(ERROR_CODE.LEDGER_UNBALANCED);
     });
@@ -120,13 +135,21 @@ describe('ledger.util', () => {
 
   describe('buildBalancedLegs', () => {
     it.each<{ kind: LedgerPostingKind; debit: string; credit: string }>([
-      { kind: LEDGER_TXN_KIND.PAYMENT_CAPTURED, debit: ACCOUNT.CASH, credit: ACCOUNT.CUSTOMER_PREPAYMENT },
+      {
+        kind: LEDGER_TXN_KIND.PAYMENT_CAPTURED,
+        debit: ACCOUNT.CASH,
+        credit: ACCOUNT.CUSTOMER_PREPAYMENT,
+      },
       {
         kind: LEDGER_TXN_KIND.DELIVERY_RECOGNIZED,
         debit: ACCOUNT.CUSTOMER_PREPAYMENT,
         credit: ACCOUNT.REVENUE,
       },
-      { kind: LEDGER_TXN_KIND.PAYMENT_REFUNDED, debit: ACCOUNT.CUSTOMER_PREPAYMENT, credit: ACCOUNT.CASH },
+      {
+        kind: LEDGER_TXN_KIND.PAYMENT_REFUNDED,
+        debit: ACCOUNT.CUSTOMER_PREPAYMENT,
+        credit: ACCOUNT.CASH,
+      },
     ])('produces [$debit, $credit] for $kind', ({ kind, debit, credit }) => {
       const legs = buildBalancedLegs(kind, 50000, 'RUB', { orderId: 7, paymentEventId: 9 });
 
@@ -173,7 +196,10 @@ describe('ledger.util', () => {
     });
 
     it('inherits fallbackOrderId only when orderId is omitted, and keeps an explicit null', () => {
-      const legs = [leg({ orderId: undefined }), leg({ direction: DIRECTION.CREDIT, orderId: null })];
+      const legs = [
+        leg({ orderId: undefined }),
+        leg({ direction: DIRECTION.CREDIT, orderId: null }),
+      ];
       const params = buildEntryParams('txn-2', 'RUB', legs, 42);
 
       expect(params[5]).toEqual([42, null]);

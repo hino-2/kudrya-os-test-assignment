@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { SEED_KEY_DISTRIBUTION, SHARED_SEED_SQL, SHARED_SEED_SQL_NAMES } from '../helpers/harness.constants';
+import {
+  SEED_KEY_DISTRIBUTION,
+  SHARED_SEED_SQL,
+  SHARED_SEED_SQL_NAMES,
+} from '../helpers/harness.constants';
 import { normalizeSql, readToolsKeyDistribution, readToolsSql } from '../helpers/parity.helper';
 
 describe('seed sql parity between tools/ and the test helper', () => {

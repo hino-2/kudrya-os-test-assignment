@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { SUPPLIER_CODE, SUPPLIER_ERROR_KIND, SUPPLIER_OUTCOME } from '../../src/suppliers/suppliers.constants';
+import {
+  SUPPLIER_CODE,
+  SUPPLIER_ERROR_KIND,
+  SUPPLIER_OUTCOME,
+} from '../../src/suppliers/suppliers.constants';
 import {
   buildSupplierRequestId,
   buildUnknownSupplierCodeMessage,
@@ -93,7 +97,10 @@ describe('suppliers.util', () => {
     });
 
     it('classifies a 5xx as UNAVAILABLE only when the body is a contract error', () => {
-      const result = classifySupplierHttpStatus(500, { status: 'error', reason: 'upstream_unavailable' });
+      const result = classifySupplierHttpStatus(500, {
+        status: 'error',
+        reason: 'upstream_unavailable',
+      });
 
       expect(result.kind).toBe(SUPPLIER_OUTCOME.UNAVAILABLE);
       expect(result.errorKind).toBe(SUPPLIER_ERROR_KIND.HTTP_5XX);
@@ -179,7 +186,9 @@ describe('suppliers.util', () => {
     it('walks one level into error.cause for undici-wrapped TypeErrors', () => {
       const wrapped = new TypeError('fetch failed');
 
-      Object.assign(wrapped, { cause: Object.assign(new Error('inner'), { code: 'ECONNREFUSED' }) });
+      Object.assign(wrapped, {
+        cause: Object.assign(new Error('inner'), { code: 'ECONNREFUSED' }),
+      });
 
       expect(classifySupplierNetworkError(wrapped)).toEqual({
         kind: SUPPLIER_OUTCOME.UNAVAILABLE,

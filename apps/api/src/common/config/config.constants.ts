@@ -14,7 +14,12 @@ export const ADMIN_TOKEN_DEV_DEFAULT = 'dev-admin-token';
 export const ADMIN_TOKEN_MIN_LENGTH = 32;
 
 export const ENV_SPEC: readonly IEnvVarSpec[] = [
-  { name: 'NODE_ENV', kind: 'enum', default: 'development', values: ['development', 'test', 'production'] },
+  {
+    name: 'NODE_ENV',
+    kind: 'enum',
+    default: 'development',
+    values: ['development', 'test', 'production'],
+  },
   { name: 'PORT', kind: 'int', default: 3000, min: 1, max: 65535 },
   { name: 'DATABASE_URL', kind: 'url', required: true, protocols: ['postgres:', 'postgresql:'] },
   { name: 'DB_POOL_SIZE', kind: 'int', default: 20, min: 1, max: 100 },
@@ -24,8 +29,18 @@ export const ENV_SPEC: readonly IEnvVarSpec[] = [
   { name: 'LOG_LEVEL', kind: 'enum', default: 'info', values: ['debug', 'info', 'warn', 'error'] },
   { name: 'LOG_FORMAT', kind: 'enum', default: 'json', values: ['json', 'pretty'] },
   { name: 'LOG_STACK', kind: 'bool', default: false },
-  { name: 'SUPPLIER_A_BASE_URL', kind: 'url', default: 'http://localhost:4001', protocols: ['http:', 'https:'] },
-  { name: 'SUPPLIER_B_BASE_URL', kind: 'url', default: 'http://localhost:4002', protocols: ['http:', 'https:'] },
+  {
+    name: 'SUPPLIER_A_BASE_URL',
+    kind: 'url',
+    default: 'http://localhost:4001',
+    protocols: ['http:', 'https:'],
+  },
+  {
+    name: 'SUPPLIER_B_BASE_URL',
+    kind: 'url',
+    default: 'http://localhost:4002',
+    protocols: ['http:', 'https:'],
+  },
   { name: 'SUPPLIER_REQUEST_TIMEOUT_MS', kind: 'int', default: 2000, min: 100, max: 30000 },
   { name: 'SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER', kind: 'int', default: 2, min: 1, max: 5 },
   { name: 'SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS', kind: 'int', default: 5, min: 1, max: 10 },
@@ -121,7 +136,8 @@ export const ENV_CROSS_RULES: readonly IEnvCrossRule[] = [
       if (env.ADMIN_TOKEN === '') {
         return {
           name: 'ADMIN_TOKEN',
-          reason: 'при NODE_ENV=production и ADMIN_API_ENABLED=true ADMIN_TOKEN не может быть пустым: пустое значение отключает проверку токена',
+          reason:
+            'при NODE_ENV=production и ADMIN_API_ENABLED=true ADMIN_TOKEN не может быть пустым: пустое значение отключает проверку токена',
         };
       }
 

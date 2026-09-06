@@ -56,7 +56,10 @@ export class PaymentWebhookService {
     this.logger.setContext('PaymentWebhookService');
   }
 
-  async handle(dto: PaymentWebhookRequestDto, rawPayload: RawWebhookPayload): Promise<IWebhookOutcome> {
+  async handle(
+    dto: PaymentWebhookRequestDto,
+    rawPayload: RawWebhookPayload,
+  ): Promise<IWebhookOutcome> {
     this.logger.event(LOG_EVENT.PAYMENT_RECEIVED, {
       order_id: dto.order_id,
       status: dto.status,
@@ -74,7 +77,9 @@ export class PaymentWebhookService {
       traceId: this.correlationStore.traceId(),
     };
 
-    const outcome = await this.unitOfWork.withTransaction((qr) => this.applyEventInTransaction(qr, input));
+    const outcome = await this.unitOfWork.withTransaction((qr) =>
+      this.applyEventInTransaction(qr, input),
+    );
 
     const logEvent = WEBHOOK_RESULT_LOG_EVENT[outcome.result];
     const logData = {
@@ -84,7 +89,10 @@ export class PaymentWebhookService {
       from_status: outcome.fromStatus,
     };
 
-    if (outcome.result === WEBHOOK_RESULT.CONFLICT || outcome.result === WEBHOOK_RESULT.REJECTED_AMOUNT) {
+    if (
+      outcome.result === WEBHOOK_RESULT.CONFLICT ||
+      outcome.result === WEBHOOK_RESULT.REJECTED_AMOUNT
+    ) {
       this.logger.error(logEvent, undefined, logData);
     } else {
       this.logger.event(logEvent, logData);
@@ -100,7 +108,10 @@ export class PaymentWebhookService {
     return outcome;
   }
 
-  async applyEventInTransaction(qr: QueryRunner, input: IPaymentEventInput): Promise<IWebhookOutcome> {
+  async applyEventInTransaction(
+    qr: QueryRunner,
+    input: IPaymentEventInput,
+  ): Promise<IWebhookOutcome> {
     const eventId = await this.paymentEvents.insertPending(qr, input);
 
     if (eventId === null) {
@@ -117,7 +128,11 @@ export class PaymentWebhookService {
     return this.applyPersistedEvent(qr, eventId, input);
   }
 
-  async applyPersistedEvent(qr: QueryRunner, eventId: number, input: IPaymentEventInput): Promise<IWebhookOutcome> {
+  async applyPersistedEvent(
+    qr: QueryRunner,
+    eventId: number,
+    input: IPaymentEventInput,
+  ): Promise<IWebhookOutcome> {
     const order = await this.orders.lockForUpdate(qr, input.orderExtId);
 
     if (order === null) {
@@ -200,7 +215,12 @@ export class PaymentWebhookService {
       id: eventId,
       state: PAYMENT_EVENT_STATE.REJECTED_AMOUNT,
       orderId: order.id,
-      ignoreReason: buildAmountMismatchReason(order.total_minor, order.currency, input.amountMinor, input.currency),
+      ignoreReason: buildAmountMismatchReason(
+        order.total_minor,
+        order.currency,
+        input.amountMinor,
+        input.currency,
+      ),
       appliedFromStatus: order.status,
       appliedToStatus: null,
     });
@@ -252,9 +272,10 @@ export class PaymentWebhookService {
     event: OrderEvent,
   ): Promise<IWebhookOutcome> {
     const state = resolveIgnoredState(event);
-    const result = state === PAYMENT_EVENT_STATE.IGNORED_ALREADY_PAID
-      ? WEBHOOK_RESULT.IGNORED_ALREADY_PAID
-      : WEBHOOK_RESULT.IGNORED_TERMINAL;
+    const result =
+      state === PAYMENT_EVENT_STATE.IGNORED_ALREADY_PAID
+        ? WEBHOOK_RESULT.IGNORED_ALREADY_PAID
+        : WEBHOOK_RESULT.IGNORED_TERMINAL;
 
     await this.paymentEvents.finalise(qr, {
       id: eventId,
@@ -304,10 +325,15 @@ export class PaymentWebhookService {
         kind: LEDGER_TXN_KIND.PAYMENT_CAPTURED,
         idempotencyKey: buildPaymentCapturedKey(input.eventId),
         orderId: order.id,
-        legs: buildBalancedLegs(LEDGER_TXN_KIND.PAYMENT_CAPTURED, order.total_minor, order.currency, {
-          orderId: order.id,
-          paymentEventId: eventId,
-        }),
+        legs: buildBalancedLegs(
+          LEDGER_TXN_KIND.PAYMENT_CAPTURED,
+          order.total_minor,
+          order.currency,
+          {
+            orderId: order.id,
+            paymentEventId: eventId,
+          },
+        ),
       });
 
       const payload = {

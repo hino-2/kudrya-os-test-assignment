@@ -27,7 +27,10 @@ function resolvePort(server: Server): number {
 // port=0 отдаёт ОС свободный эфемерный порт (обычный случай); воркерные сьюты передают
 // фиксированный порт, т.к. их SUPPLIER_A_BASE_URL/SUPPLIER_B_BASE_URL уже зафиксированы
 // в env.setup.worker-enabled.ts до импорта AppModule (см. комментарий в harness.constants.ts)
-export async function startStub(envOverrides: Record<string, string>, port = 0): Promise<IStubHarness> {
+export async function startStub(
+  envOverrides: Record<string, string>,
+  port = 0,
+): Promise<IStubHarness> {
   Object.assign(process.env, envOverrides);
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -39,7 +42,7 @@ export async function startStub(envOverrides: Record<string, string>, port = 0):
 
   await app.listen(port, TEST_HOST);
 
-  const server: Server = app.getHttpServer();
+  const server = app.getHttpServer() as Server;
   const boundPort = resolvePort(server);
 
   return {

@@ -61,7 +61,11 @@ export function buildAmountMismatchReason(
 }
 
 export function buildStaleReason(occurredAt: Date, lastPaymentEventAt: Date): string {
-  return formatTemplate(STALE_EVENT_REASON_TEMPLATE, occurredAt.toISOString(), lastPaymentEventAt.toISOString());
+  return formatTemplate(
+    STALE_EVENT_REASON_TEMPLATE,
+    occurredAt.toISOString(),
+    lastPaymentEventAt.toISOString(),
+  );
 }
 
 export function buildIgnoredReason(fromStatus: OrderStatus, event: OrderEvent): string {

@@ -16,7 +16,11 @@ import { ATTEMPT_STATE, DELIVERY_SOURCE } from '../../src/delivery/delivery.cons
 import { FALLBACK_CHAIN, SUPPLIER_CODE } from '../../src/suppliers/suppliers.constants';
 import { startApi } from '../helpers/app.harness';
 import { startStub } from '../helpers/stub.harness';
-import { TEST_ADMIN_TOKEN, TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
+import {
+  TEST_ADMIN_TOKEN,
+  TEST_WORKER_SUPPLIER_A_PORT,
+  TEST_WORKER_SUPPLIER_B_PORT,
+} from '../helpers/harness.constants';
 import type { IApiHarness, IStubHarness } from '../helpers/harness.interfaces';
 import { resetDatabase } from '../helpers/pg.helper';
 import { seedCatalog } from '../helpers/seed.helper';
@@ -162,7 +166,9 @@ async function pollAttemptUntil(
     await delay(POLL_STEP_MS);
   }
 
-  throw new Error(`Попытка выдачи заказа ${extId} не перешла в ожидаемое состояние за ${timeoutMs}мс`);
+  throw new Error(
+    `Попытка выдачи заказа ${extId} не перешла в ожидаемое состояние за ${timeoutMs}мс`,
+  );
 }
 
 async function post<T>(
@@ -227,7 +233,9 @@ async function markOrderPaid(extId: string): Promise<number> {
 
   // id читается отдельным SELECT, а не через UPDATE ... RETURNING: на UPDATE драйвер отдаёт
   // [rows, rowCount], и rows[0].id молча вышел бы undefined
-  const rows = await api.dataSource.query<Array<{ id: string }>>(SELECT_ORDER_ID_BY_EXT_ID_SQL, [extId]);
+  const rows = await api.dataSource.query<Array<{ id: string }>>(SELECT_ORDER_ID_BY_EXT_ID_SQL, [
+    extId,
+  ]);
   const row = rows[0];
 
   if (row === undefined) {
@@ -239,7 +247,11 @@ async function markOrderPaid(extId: string): Promise<number> {
   return Number(row.id);
 }
 
-async function enqueueDeliverOrder(orderId: number, extId: string, maxAttempts: number): Promise<void> {
+async function enqueueDeliverOrder(
+  orderId: number,
+  extId: string,
+  maxAttempts: number,
+): Promise<void> {
   const unitOfWork = api.get(UnitOfWorkService);
   const queue = api.get(JobQueueService);
   const jobId = await unitOfWork.withTransaction((qr) =>
@@ -341,7 +353,10 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const issued = await fetchIssuedDeliveries(extId);
 
     expect(issued).toHaveLength(1);
-    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+    expect(issued[0]).toMatchObject({
+      source: DELIVERY_SOURCE.SUPPLIER,
+      supplier_code: SUPPLIER_CODE.A,
+    });
 
     // M18, критерий 4: недостаточно посчитать строки. Выданный код обязан быть ТЕМ ЖЕ, что
     // заглушка заминтила на зависшем первом вызове, а у самой заглушки должна быть ровно одна
@@ -371,7 +386,11 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
 
     await payOrder(extId, SUPPLIER_SKU_AMOUNT_MAJOR, 'evt_worker_supplier_resolve');
 
-    const exhausted = await pollAttemptUntil(extId, (row) => row.resolve_attempts >= cap, POLL_RESOLVE_TIMEOUT_MS);
+    const exhausted = await pollAttemptUntil(
+      extId,
+      (row) => row.resolve_attempts >= cap,
+      POLL_RESOLVE_TIMEOUT_MS,
+    );
 
     // заглушка отвечает на реплей того же request_id мгновенно, поэтому состояние «код у A уже
     // есть, а слепой реплей его не покажет» воспроизводится прямым POST /issue в заглушку A:
@@ -415,7 +434,10 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const issued = await fetchIssuedDeliveries(extId);
 
     expect(issued).toHaveLength(1);
-    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+    expect(issued[0]).toMatchObject({
+      source: DELIVERY_SOURCE.SUPPLIER,
+      supplier_code: SUPPLIER_CODE.A,
+    });
     expect(issued[0].code).toBe(minted.body.code);
 
     const stateB = await getJson<IStubControlState>(stubB.baseUrl, '/_control/state');
@@ -455,7 +477,10 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const issued = await fetchIssuedDeliveries(extId);
 
     expect(issued).toHaveLength(1);
-    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+    expect(issued[0]).toMatchObject({
+      source: DELIVERY_SOURCE.SUPPLIER,
+      supplier_code: SUPPLIER_CODE.A,
+    });
 
     // главное: у самой заглушки A заминчен ровно один код на этот заказ
     const stateA = await getJson<IStubControlState>(stubA.baseUrl, '/_control/state');
@@ -492,8 +517,16 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const attempts = await fetchDeliveryAttempts(extId);
 
     expect(attempts).toHaveLength(2);
-    expect(attempts[0]).toMatchObject({ supplier_code: SUPPLIER_CODE.A, attempt_no: 1, state: ATTEMPT_STATE.FAILED });
-    expect(attempts[1]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 1, state: ATTEMPT_STATE.FAILED });
+    expect(attempts[0]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[1]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.B,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
 
     expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
   });
@@ -532,10 +565,26 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const attempts = await fetchDeliveryAttempts(extId);
 
     expect(attempts).toHaveLength(4);
-    expect(attempts[0]).toMatchObject({ supplier_code: SUPPLIER_CODE.A, attempt_no: 1, state: ATTEMPT_STATE.FAILED });
-    expect(attempts[1]).toMatchObject({ supplier_code: SUPPLIER_CODE.A, attempt_no: 2, state: ATTEMPT_STATE.FAILED });
-    expect(attempts[2]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 1, state: ATTEMPT_STATE.FAILED });
-    expect(attempts[3]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 2, state: ATTEMPT_STATE.FAILED });
+    expect(attempts[0]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[1]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.A,
+      attempt_no: 2,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[2]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.B,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.FAILED,
+    });
+    expect(attempts[3]).toMatchObject({
+      supplier_code: SUPPLIER_CODE.B,
+      attempt_no: 2,
+      state: ATTEMPT_STATE.FAILED,
+    });
 
     expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
   });
@@ -645,7 +694,11 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
 
     const dedupeKey = buildDeliverOrderDedupeKey(extId);
 
-    await pollJobsUntil(api.dataSource, dedupeKey, (rows) => rows.length === 1 && rows[0].state === JOB_STATE.DONE);
+    await pollJobsUntil(
+      api.dataSource,
+      dedupeKey,
+      (rows) => rows.length === 1 && rows[0].state === JOB_STATE.DONE,
+    );
 
     expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.OUT_OF_STOCK);
 
@@ -696,6 +749,9 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     const issued = await fetchIssuedDeliveries(extId);
 
     expect(issued).toHaveLength(1);
-    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+    expect(issued[0]).toMatchObject({
+      source: DELIVERY_SOURCE.SUPPLIER,
+      supplier_code: SUPPLIER_CODE.A,
+    });
   });
 });

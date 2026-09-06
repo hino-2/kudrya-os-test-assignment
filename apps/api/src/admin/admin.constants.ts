@@ -26,7 +26,8 @@ export const ADMIN_RESTOCK_STATUS = 200;
 
 export const ADMIN_REDELIVER_STATUS = 202;
 
-export const RESTOCK_BODY_INVALID_MESSAGE = 'Тело запроса должно содержать ровно одно из полей: codes или count';
+export const RESTOCK_BODY_INVALID_MESSAGE =
+  'Тело запроса должно содержать ровно одно из полей: codes или count';
 
 export const RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE =
   'Явные коды недопустимы для товара с fulfillment_mode=supplier';

@@ -19,8 +19,16 @@ import { OrdersRepository } from '../orders/orders.repository';
 import { SweeperService } from '../reconciliation/sweeper.service';
 import type { ISweeperCycleResult } from '../reconciliation/sweeper.interfaces';
 import { SupplierClient } from '../suppliers/supplier.client';
-import { RESTOCK_BODY_INVALID_MESSAGE, RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE } from './admin.constants';
-import type { IRedeliverInput, IRedeliverResult, IRestockInput, IRestockResult } from './admin.interfaces';
+import {
+  RESTOCK_BODY_INVALID_MESSAGE,
+  RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE,
+} from './admin.constants';
+import type {
+  IRedeliverInput,
+  IRedeliverResult,
+  IRestockInput,
+  IRestockResult,
+} from './admin.interfaces';
 
 @Injectable()
 export class AdminService {
@@ -59,7 +67,10 @@ export class AdminService {
 
       if (product.fulfillment_mode === FULFILLMENT_MODE.SUPPLIER) {
         if (hasCodes) {
-          throw new DomainError(ERROR_CODE.VALIDATION_FAILED, RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE);
+          throw new DomainError(
+            ERROR_CODE.VALIDATION_FAILED,
+            RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE,
+          );
         }
 
         // count проверен выше через hasCount === !hasCodes
@@ -72,8 +83,15 @@ export class AdminService {
         return { added: count, availableCount };
       }
 
-      const codes = hasCodes ? (input.codes as string[]) : this.generatePoolCodes(input.count as number);
-      const insertedCount = await this.inventory.insertRestockKeys(qr, product.id, codes, RESTOCK_BATCH);
+      const codes = hasCodes
+        ? (input.codes as string[])
+        : this.generatePoolCodes(input.count as number);
+      const insertedCount = await this.inventory.insertRestockKeys(
+        qr,
+        product.id,
+        codes,
+        RESTOCK_BATCH,
+      );
       const availableCount = await this.inventory.bumpAvailableCount(qr, product.id, insertedCount);
 
       await this.inventory.syncProductInStock(qr, product.id);
@@ -83,7 +101,9 @@ export class AdminService {
 
     // вызов поставщика — сайд-эффект, идёт после коммита, чтобы не держать TX открытой на время сети
     const supplierRestock =
-      supplierRestockCount === null ? null : await this.supplierClient.restock(supplierRestockCount);
+      supplierRestockCount === null
+        ? null
+        : await this.supplierClient.restock(supplierRestockCount);
 
     this.logger.event(LOG_EVENT.ADMIN_RESTOCK, {
       sku: input.sku,

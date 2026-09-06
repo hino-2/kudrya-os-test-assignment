@@ -8,14 +8,19 @@ import type { SupplierCode, SupplierOutcomeKind } from './suppliers.type';
 // out_of_stock) не гарантируют, что повтор к тому же поставщику что-либо изменит, поэтому сразу
 // переходим к следующему в цепочке (см. FALLBACK_CHAIN)
 export function isRetriableSameSupplier(attempt: IDeliveryAttemptRow): boolean {
-  return attempt.state === ATTEMPT_STATE.FAILED && attempt.error_kind === SUPPLIER_ERROR_KIND.HTTP_5XX;
+  return (
+    attempt.state === ATTEMPT_STATE.FAILED && attempt.error_kind === SUPPLIER_ERROR_KIND.HTTP_5XX
+  );
 }
 
 export function isOutOfStockOutcome(attempt: IDeliveryAttemptRow): boolean {
   return attempt.error_kind === SUPPLIER_ERROR_KIND.OUT_OF_STOCK;
 }
 
-function lastAttemptFor(attempts: IDeliveryAttemptRow[], supplierCode: SupplierCode): IDeliveryAttemptRow | null {
+function lastAttemptFor(
+  attempts: IDeliveryAttemptRow[],
+  supplierCode: SupplierCode,
+): IDeliveryAttemptRow | null {
   const attemptsForSupplier = attempts.filter((attempt) => attempt.supplier_code === supplierCode);
 
   return attemptsForSupplier[attemptsForSupplier.length - 1] ?? null;
@@ -23,7 +28,10 @@ function lastAttemptFor(attempts: IDeliveryAttemptRow[], supplierCode: SupplierC
 
 // выбирает следующий шаг фолбэка A→B: первый ещё не пробованный поставщик, либо (если бюджет
 // повторов не исчерпан) повтор того же поставщика после http_5xx; null означает, что цепочка исчерпана
-export function pickSupplier(attempts: IDeliveryAttemptRow[], maxAttemptsPerSupplier: number): ISupplierPlanChoice | null {
+export function pickSupplier(
+  attempts: IDeliveryAttemptRow[],
+  maxAttemptsPerSupplier: number,
+): ISupplierPlanChoice | null {
   for (const supplierCode of FALLBACK_CHAIN) {
     const lastAttempt = lastAttemptFor(attempts, supplierCode);
 
@@ -31,7 +39,9 @@ export function pickSupplier(attempts: IDeliveryAttemptRow[], maxAttemptsPerSupp
       return { supplierCode, attemptNo: 1 };
     }
 
-    const attemptsSoFar = attempts.filter((attempt) => attempt.supplier_code === supplierCode).length;
+    const attemptsSoFar = attempts.filter(
+      (attempt) => attempt.supplier_code === supplierCode,
+    ).length;
 
     if (isRetriableSameSupplier(lastAttempt) && attemptsSoFar < maxAttemptsPerSupplier) {
       return { supplierCode, attemptNo: lastAttempt.attempt_no + 1 };

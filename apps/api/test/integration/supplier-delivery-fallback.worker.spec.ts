@@ -11,7 +11,10 @@ import { ATTEMPT_STATE, DELIVERY_SOURCE } from '../../src/delivery/delivery.cons
 import { SUPPLIER_CODE, SUPPLIER_ERROR_KIND } from '../../src/suppliers/suppliers.constants';
 import { startApi } from '../helpers/app.harness';
 import { startStub } from '../helpers/stub.harness';
-import { TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
+import {
+  TEST_WORKER_SUPPLIER_A_PORT,
+  TEST_WORKER_SUPPLIER_B_PORT,
+} from '../helpers/harness.constants';
 import type { IApiHarness, IStubHarness } from '../helpers/harness.interfaces';
 import { resetDatabase } from '../helpers/pg.helper';
 import { seedCatalog } from '../helpers/seed.helper';
@@ -228,6 +231,9 @@ describe('supplier delivery falls back A -> B when A is unreachable (WORKER_ENAB
     const issued = await fetchIssuedDeliveries(extId);
 
     expect(issued).toHaveLength(1);
-    expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.B });
+    expect(issued[0]).toMatchObject({
+      source: DELIVERY_SOURCE.SUPPLIER,
+      supplier_code: SUPPLIER_CODE.B,
+    });
   });
 });

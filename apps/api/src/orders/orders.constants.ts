@@ -141,7 +141,8 @@ export const ORDER_EXT_ID_TAKEN_MESSAGE = 'Сгенерированный иде
 
 export const ORDER_TRANSACTION_REQUIRED_MESSAGE = 'Операция требует открытой транзакции';
 
-export const ORDER_TRANSITION_LOST_MESSAGE = 'CAS-переход заказа не нашёл строку в ожидаемом статусе';
+export const ORDER_TRANSITION_LOST_MESSAGE =
+  'CAS-переход заказа не нашёл строку в ожидаемом статусе';
 
 export const ORDER_NEXT_EXT_ID_SQL = `
   SELECT 'ord_' || lpad(nextval('order_ext_seq')::text, 5, '0') AS ext_id

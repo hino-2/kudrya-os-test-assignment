@@ -134,13 +134,24 @@ describe('SupplierFulfilmentService forced terminal outcome on the job last atte
       ],
       transition as unknown as OrdersRepository['transition'],
     );
-    const result = await service.fulfil({ orderId: ORDER_ID, generation: 0, attempts: 1, maxAttempts: 1 });
+    const result = await service.fulfil({
+      orderId: ORDER_ID,
+      generation: 0,
+      attempts: 1,
+      maxAttempts: 1,
+    });
 
     expect(result).toEqual({ outcome: DELIVERY_OUTCOME.OUT_OF_STOCK, code: null });
     expect(transition).toHaveBeenCalledTimes(1);
-    expect(transition).toHaveBeenCalledWith({}, ORDER_ID, ORDER_STATUS.DELIVERING, ORDER_STATUS.OUT_OF_STOCK, {
-      failureReason: DELIVERY_OUT_OF_STOCK_REASON,
-    });
+    expect(transition).toHaveBeenCalledWith(
+      {},
+      ORDER_ID,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.OUT_OF_STOCK,
+      {
+        failureReason: DELIVERY_OUT_OF_STOCK_REASON,
+      },
+    );
   });
 
   // note 9: failure_reason принудительного пути — та же сводка по поставщикам, что и у штатного
@@ -155,14 +166,25 @@ describe('SupplierFulfilmentService forced terminal outcome on the job last atte
       ],
       transition as unknown as OrdersRepository['transition'],
     );
-    const result = await service.fulfil({ orderId: ORDER_ID, generation: 0, attempts: 1, maxAttempts: 1 });
+    const result = await service.fulfil({
+      orderId: ORDER_ID,
+      generation: 0,
+      attempts: 1,
+      maxAttempts: 1,
+    });
 
     expect(result).toEqual({ outcome: DELIVERY_OUTCOME.DELIVERY_FAILED, code: null });
     expect(transition).toHaveBeenCalledTimes(1);
-    expect(transition).toHaveBeenCalledWith({}, ORDER_ID, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERY_FAILED, {
-      failureReason: expect.stringMatching(
-        /^A=http_5xx, B=out_of_stock \(.*Бюджет времени на выдачу через поставщика.*\)$/,
-      ),
-    });
+    expect(transition).toHaveBeenCalledWith(
+      {},
+      ORDER_ID,
+      ORDER_STATUS.DELIVERING,
+      ORDER_STATUS.DELIVERY_FAILED,
+      {
+        failureReason: expect.stringMatching(
+          /^A=http_5xx, B=out_of_stock \(.*Бюджет времени на выдачу через поставщика.*\)$/,
+        ) as string,
+      },
+    );
   });
 });

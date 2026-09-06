@@ -133,26 +133,31 @@ describe('order-state-machine', () => {
       expect(resolveTransition(from, event)).toEqual({ kind });
     });
 
-    it.each(ILLEGAL_CASES)('$from + $event reports ILLEGAL_TRANSITION as 409 with the offending pair', ({ from, event }) => {
-      let caught: unknown;
+    it.each(ILLEGAL_CASES)(
+      '$from + $event reports ILLEGAL_TRANSITION as 409 with the offending pair',
+      ({ from, event }) => {
+        let caught: unknown;
 
-      try {
-        resolveTransition(from, event);
-      } catch (error) {
-        caught = error;
-      }
+        try {
+          resolveTransition(from, event);
+        } catch (error) {
+          caught = error;
+        }
 
-      expect(DomainError.isDomainError(caught)).toBe(true);
+        expect(DomainError.isDomainError(caught)).toBe(true);
 
-      const domainError = caught as DomainError;
+        const domainError = caught as DomainError;
 
-      expect(domainError.code).toBe(ERROR_CODE.ILLEGAL_TRANSITION);
-      expect(domainError.httpStatus).toBe(409);
-      expect(domainError.details).toEqual({ from, event });
-    });
+        expect(domainError.code).toBe(ERROR_CODE.ILLEGAL_TRANSITION);
+        expect(domainError.httpStatus).toBe(409);
+        expect(domainError.details).toEqual({ from, event });
+      },
+    );
 
     it('never targets a status outside ORDER_STATUS_VALUES', () => {
-      const targets = TRANSITION_CASES.filter((entry) => entry.kind === 'apply').map((entry) => entry.to);
+      const targets = TRANSITION_CASES.filter((entry) => entry.kind === 'apply').map(
+        (entry) => entry.to,
+      );
 
       for (const target of targets) {
         expect(ORDER_STATUS_VALUES).toContain(target);
@@ -163,13 +168,17 @@ describe('order-state-machine', () => {
     // не существует в принципе. payment_failed из TERMINAL_ORDER_STATUSES убран именно поэтому:
     // из него легально уходят PAYMENT_PAID и ADMIN_FORCE_PAID (проверяются ниже)
     it('never leaves a terminal status', () => {
-      const escapes = TRANSITION_CASES.filter((entry) => entry.kind === 'apply' && isTerminal(entry.from));
+      const escapes = TRANSITION_CASES.filter(
+        (entry) => entry.kind === 'apply' && isTerminal(entry.from),
+      );
 
       expect(escapes).toEqual([]);
     });
 
     it('leaves payment_failed only towards paid', () => {
-      const escapes = TRANSITION_CASES.filter((entry) => entry.kind === 'apply' && entry.from === 'payment_failed');
+      const escapes = TRANSITION_CASES.filter(
+        (entry) => entry.kind === 'apply' && entry.from === 'payment_failed',
+      );
 
       expect(escapes).toEqual([
         { from: 'payment_failed', event: 'PAYMENT_PAID', kind: 'apply', to: 'paid' },

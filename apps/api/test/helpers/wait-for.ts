@@ -39,5 +39,9 @@ export async function waitForCondition(
   check: () => Promise<boolean> | boolean,
   options: IWaitForOptions = {},
 ): Promise<void> {
-  await waitFor(async () => Boolean(await check()), (value) => value, options);
+  await waitFor(
+    async () => Boolean(await check()),
+    (value) => value,
+    options,
+  );
 }

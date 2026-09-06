@@ -22,10 +22,10 @@ class FakeDataSource {
 
   constructor(private readonly txnRows: ITxnIdRow[]) {}
 
-  async query(sql: string, params: unknown[]): Promise<unknown> {
+  query(sql: string, params: unknown[]): Promise<unknown> {
     this.calls.push({ sql, params });
 
-    return sql === LEDGER_TXN_INSERT_SQL ? this.txnRows : [];
+    return Promise.resolve(sql === LEDGER_TXN_INSERT_SQL ? this.txnRows : []);
   }
 }
 
@@ -73,7 +73,12 @@ describe('LedgerService.postTxn', () => {
       orderId: 42,
       legs: [
         { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-        { account: 'customer_prepayment', direction: 'credit', amountMinor: 50000, currency: 'RUB' },
+        {
+          account: 'customer_prepayment',
+          direction: 'credit',
+          amountMinor: 50000,
+          currency: 'RUB',
+        },
       ],
     });
 
@@ -101,7 +106,12 @@ describe('LedgerService.postTxn', () => {
       orderId: 42,
       legs: [
         { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-        { account: 'customer_prepayment', direction: 'credit', amountMinor: 50000, currency: 'RUB' },
+        {
+          account: 'customer_prepayment',
+          direction: 'credit',
+          amountMinor: 50000,
+          currency: 'RUB',
+        },
       ],
     });
 
@@ -119,7 +129,12 @@ describe('LedgerService.postTxn', () => {
         orderId: 42,
         legs: [
           { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-          { account: 'customer_prepayment', direction: 'credit', amountMinor: 49000, currency: 'RUB' },
+          {
+            account: 'customer_prepayment',
+            direction: 'credit',
+            amountMinor: 49000,
+            currency: 'RUB',
+          },
         ],
       }),
     );
@@ -197,7 +212,12 @@ describe('LedgerService.postTxn', () => {
         orderId: 42,
         legs: [
           { account: 'cash', direction: 'debit', amountMinor: 50000, currency: 'RUB' },
-          { account: 'customer_prepayment', direction: 'credit', amountMinor: 50000, currency: 'RUB' },
+          {
+            account: 'customer_prepayment',
+            direction: 'credit',
+            amountMinor: 50000,
+            currency: 'RUB',
+          },
         ],
       }),
     );
@@ -213,7 +233,12 @@ describe('LedgerService.postTxn', () => {
       idempotencyKey: 'payment_captured:evt_1',
       orderId: 42,
       legs: [
-        { account: 'cash' as const, direction: 'debit' as const, amountMinor: 50000, currency: 'RUB' as const },
+        {
+          account: 'cash' as const,
+          direction: 'debit' as const,
+          amountMinor: 50000,
+          currency: 'RUB' as const,
+        },
         {
           account: 'customer_prepayment' as const,
           direction: 'credit' as const,

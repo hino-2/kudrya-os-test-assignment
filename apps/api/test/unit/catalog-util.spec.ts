@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { CATALOG_IN_STOCK_DEFAULT } from '../../src/catalog/catalog.constants';
-import { escapeLikePrefix, parseBooleanFlag, resolveListFilter } from '../../src/catalog/catalog.util';
+import {
+  escapeLikePrefix,
+  parseBooleanFlag,
+  resolveListFilter,
+} from '../../src/catalog/catalog.util';
 import type { ICatalogConfig } from '../../src/common/config/config.interfaces';
 
 const config: ICatalogConfig = { defaultLimit: 24, maxLimit: 100 };

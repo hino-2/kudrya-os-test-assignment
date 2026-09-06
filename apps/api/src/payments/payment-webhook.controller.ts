@@ -20,9 +20,14 @@ export class PaymentWebhookController {
 
   @Post(PAYMENT_WEBHOOK_PATH)
   @HttpCode(PAYMENT_WEBHOOK_STATUS)
-  handle(@Body() dto: PaymentWebhookRequestDto, @Req() request: Request): Promise<PaymentWebhookResponseDto> {
-    return this.logger.withCorrelation({ order_id: dto.order_id, event_id: dto.event_id }, async () =>
-      toWebhookResponse(await this.service.handle(dto, toRawPayload(request.body, dto))),
+  handle(
+    @Body() dto: PaymentWebhookRequestDto,
+    @Req() request: Request,
+  ): Promise<PaymentWebhookResponseDto> {
+    return this.logger.withCorrelation(
+      { order_id: dto.order_id, event_id: dto.event_id },
+      async () =>
+        toWebhookResponse(await this.service.handle(dto, toRawPayload(request.body, dto))),
     );
   }
 }

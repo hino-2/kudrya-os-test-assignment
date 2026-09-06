@@ -19,13 +19,21 @@ import {
   RESERVE_KEY_SQL,
   SYNC_PRODUCT_IN_STOCK_SQL,
 } from './inventory.constants';
-import type { ILockedProductStockRow, ISkuStockCountersRow, IStockKeyRow } from './inventory.interfaces';
+import type {
+  ILockedProductStockRow,
+  ISkuStockCountersRow,
+  IStockKeyRow,
+} from './inventory.interfaces';
 
 @Injectable()
 export class InventoryRepository {
   constructor(private readonly dataSource: DataSource) {}
 
-  async reserveKey(qr: QueryRunner, productId: number, orderId: number): Promise<IStockKeyRow | null> {
+  async reserveKey(
+    qr: QueryRunner,
+    productId: number,
+    orderId: number,
+  ): Promise<IStockKeyRow | null> {
     this.assertTransaction(qr);
 
     const rows = await this.runUpdate<IStockKeyRow>(RESERVE_KEY_SQL, [productId, orderId], qr);
@@ -85,7 +93,10 @@ export class InventoryRepository {
     await qr.query(SYNC_PRODUCT_IN_STOCK_SQL, [productId]);
   }
 
-  async lockProductStockBySku(qr: QueryRunner, sku: string): Promise<ILockedProductStockRow | null> {
+  async lockProductStockBySku(
+    qr: QueryRunner,
+    sku: string,
+  ): Promise<ILockedProductStockRow | null> {
     this.assertTransaction(qr);
 
     const rows = await this.run<ILockedProductStockRow>(LOCK_PRODUCT_STOCK_BY_SKU_SQL, [sku], qr);
@@ -93,10 +104,19 @@ export class InventoryRepository {
     return rows[0] ?? null;
   }
 
-  async insertRestockKeys(qr: QueryRunner, productId: number, codes: string[], batch: string): Promise<number> {
+  async insertRestockKeys(
+    qr: QueryRunner,
+    productId: number,
+    codes: string[],
+    batch: string,
+  ): Promise<number> {
     this.assertTransaction(qr);
 
-    const rows = await this.runUpdate<IStockKeyRow>(INSERT_RESTOCK_KEYS_SQL, [productId, codes, batch], qr);
+    const rows = await this.runUpdate<IStockKeyRow>(
+      INSERT_RESTOCK_KEYS_SQL,
+      [productId, codes, batch],
+      qr,
+    );
 
     return rows.length;
   }
@@ -106,7 +126,11 @@ export class InventoryRepository {
   async bumpAvailableCount(qr: QueryRunner, productId: number, delta: number): Promise<number> {
     this.assertTransaction(qr);
 
-    const rows = await this.runUpdate<ISkuStockCountersRow>(BUMP_AVAILABLE_COUNT_SQL, [productId, delta], qr);
+    const rows = await this.runUpdate<ISkuStockCountersRow>(
+      BUMP_AVAILABLE_COUNT_SQL,
+      [productId, delta],
+      qr,
+    );
 
     this.assertCounterApplied(rows);
 
@@ -134,7 +158,7 @@ export class InventoryRepository {
   }
 
   private async runUpdate<T>(sql: string, params: unknown[], qr: QueryRunner): Promise<T[]> {
-    const result: QueryResult<T> = await qr.query(sql, params, true);
+    const result = (await qr.query(sql, params, true)) as QueryResult<T>;
 
     return result.records;
   }

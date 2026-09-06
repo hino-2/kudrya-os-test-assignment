@@ -15,19 +15,19 @@ const noRestrictedProcessEnv = {
 
 export default tseslint.config(
   {
-    ignores: [
-      '**/dist/**',
-      '**/coverage/**',
-      '**/node_modules/**',
-      '**/.stub-state-*.json',
-    ],
+    ignores: ['**/dist/**', '**/coverage/**', '**/node_modules/**', '**/.stub-state-*.json'],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  ...tseslint.configs.recommendedTypeChecked,
   {
     languageOptions: {
       parserOptions: {
         sourceType: 'module',
+        // projectService сам подбирает tsconfig по расположению файла: у apps/api,
+        // apps/supplier-stub и tools свои tsconfig.json, каждый из которых уже включает
+        // и src/**, и test/**, и vitest.config.mts
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
@@ -39,6 +39,11 @@ export default tseslint.config(
         { blankLine: 'any', prev: ['const', 'let', 'var'], next: ['const', 'let', 'var'] },
       ],
     },
+  },
+  {
+    // сам конфиг eslint не покрыт ни одним tsconfig — type-aware правилам его не отдаём
+    files: ['eslint.config.mjs'],
+    extends: [tseslint.configs.disableTypeChecked],
   },
   {
     files: [

@@ -1,5 +1,14 @@
 import { Type } from 'class-transformer';
-import { IsBooleanString, IsIn, IsInt, IsOptional, Length, Matches, Max, Min } from 'class-validator';
+import {
+  IsBooleanString,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Length,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
 
 import {
   CATALOG_LIMIT_HARD_MAX,

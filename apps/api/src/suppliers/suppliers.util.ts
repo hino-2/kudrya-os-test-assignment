@@ -59,7 +59,9 @@ export function isSupplierSuccessBody(
   const candidate = body as ISupplierIssueSuccessBody;
 
   return (
-    candidate.status === SUPPLIER_OK_STATUS && typeof candidate.code === 'string' && candidate.code.length > 0
+    candidate.status === SUPPLIER_OK_STATUS &&
+    typeof candidate.code === 'string' &&
+    candidate.code.length > 0
   );
 }
 
@@ -100,7 +102,9 @@ export function extractSupplierReason(body: unknown): string | null {
 
   const candidate = body as ISupplierIssueErrorBody;
 
-  return typeof candidate.reason === 'string' && candidate.reason.length > 0 ? candidate.reason : null;
+  return typeof candidate.reason === 'string' && candidate.reason.length > 0
+    ? candidate.reason
+    : null;
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -126,7 +130,10 @@ export function classifySupplierNetworkError(error: unknown): INetworkErrorClass
   const code = readErrorCode(error) ?? readErrorCode(cause);
 
   if (code !== null && (SUPPLIER_REFUSED_CODES as readonly string[]).includes(code)) {
-    return { kind: SUPPLIER_OUTCOME.UNAVAILABLE, errorKind: SUPPLIER_ERROR_KIND.CONNECTION_REFUSED };
+    return {
+      kind: SUPPLIER_OUTCOME.UNAVAILABLE,
+      errorKind: SUPPLIER_ERROR_KIND.CONNECTION_REFUSED,
+    };
   }
 
   if (code !== null && (SUPPLIER_RESET_CODES as readonly string[]).includes(code)) {
@@ -139,11 +146,18 @@ export function classifySupplierNetworkError(error: unknown): INetworkErrorClass
   return { kind: SUPPLIER_OUTCOME.UNKNOWN, errorKind: SUPPLIER_ERROR_KIND.CONNECTION_RESET };
 }
 
-export function classifySupplierHttpStatus(status: number, body: unknown): IHttpStatusClassification {
+export function classifySupplierHttpStatus(
+  status: number,
+  body: unknown,
+): IHttpStatusClassification {
   const reason = extractSupplierReason(body);
 
   if (reason === SUPPLIER_OUT_OF_STOCK_REASON) {
-    return { kind: SUPPLIER_OUTCOME.OUT_OF_STOCK, errorKind: SUPPLIER_ERROR_KIND.OUT_OF_STOCK, reason };
+    return {
+      kind: SUPPLIER_OUTCOME.OUT_OF_STOCK,
+      errorKind: SUPPLIER_ERROR_KIND.OUT_OF_STOCK,
+      reason,
+    };
   }
 
   // 5xx определён ровно тогда, когда поставщик ответил в своём контракте: тело

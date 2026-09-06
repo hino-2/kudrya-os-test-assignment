@@ -1,0 +1,4 @@
+# format:check держит endOfLine: lf, поэтому рабочая копия обязана быть в LF независимо
+# от core.autocrlf на машине разработчика — иначе prettier ругается локально и молчит в CI.
+* text=auto eol=lf
+*.png binary

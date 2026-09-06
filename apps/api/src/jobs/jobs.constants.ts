@@ -42,7 +42,8 @@ export const JOB_LAST_ERROR_MAX_LENGTH = 1000;
 
 export const JOB_MISSING_HANDLER_MESSAGE_TEMPLATE = 'Не найден обработчик для задачи типа %s';
 
-export const JOB_DUPLICATE_HANDLER_MESSAGE_TEMPLATE = 'Обработчик для типа %s зарегистрирован дважды';
+export const JOB_DUPLICATE_HANDLER_MESSAGE_TEMPLATE =
+  'Обработчик для типа %s зарегистрирован дважды';
 
 export const JOB_UNKNOWN_ERROR_MESSAGE = 'Неизвестная ошибка обработчика задачи';
 

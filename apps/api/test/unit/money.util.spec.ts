@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { DomainError } from '../../src/common/errors/domain.error';
-import { assertInt, isSupportedCurrency, toMajor, toMinor } from '../../src/common/money/money.util';
+import {
+  assertInt,
+  isSupportedCurrency,
+  toMajor,
+  toMinor,
+} from '../../src/common/money/money.util';
 
 describe('money.util', () => {
   describe('assertInt', () => {
