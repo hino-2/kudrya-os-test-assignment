@@ -4,14 +4,16 @@ import type { DataSource } from 'typeorm';
 import { ADMIN_TOKEN_HEADER } from '../../src/admin/admin.constants';
 import { AppConfigService } from '../../src/common/config/app-config.service';
 import type { RedeliverResponseDto } from '../../src/admin/dto/redeliver.response.dto';
-import { JOB_STATE } from '../../src/jobs/jobs.constants';
+import { UnitOfWorkService } from '../../src/common/db/unit-of-work.service';
+import { JOB_KIND, JOB_STATE } from '../../src/jobs/jobs.constants';
+import { JobQueueService } from '../../src/jobs/job-queue.service';
 import { buildDeliverOrderDedupeKey } from '../../src/jobs/jobs.util';
 import type { IJobRow } from '../../src/jobs/jobs.interfaces';
 import { ORDER_STATUS } from '../../src/orders/orders.constants';
 import type { CreateOrderResponseDto } from '../../src/orders/dto/create-order.response.dto';
 import type { PaymentWebhookResponseDto } from '../../src/payments/dto/payment-webhook.response.dto';
 import { ATTEMPT_STATE, DELIVERY_SOURCE } from '../../src/delivery/delivery.constants';
-import { SUPPLIER_CODE } from '../../src/suppliers/suppliers.constants';
+import { FALLBACK_CHAIN, SUPPLIER_CODE } from '../../src/suppliers/suppliers.constants';
 import { startApi } from '../helpers/app.harness';
 import { startStub } from '../helpers/stub.harness';
 import { TEST_ADMIN_TOKEN, TEST_WORKER_SUPPLIER_A_PORT, TEST_WORKER_SUPPLIER_B_PORT } from '../helpers/harness.constants';
@@ -60,6 +62,13 @@ const SUPPLIER_SKU_AMOUNT_MAJOR = 500;
 const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1 ORDER BY id';
 
 const SELECT_ORDER_STATUS_BY_EXT_ID_SQL = 'SELECT status FROM orders WHERE ext_id = $1';
+
+const MARK_ORDER_PAID_SQL = `
+  UPDATE orders SET status = 'paid', paid_at = now(), updated_at = now()
+  WHERE ext_id = $1
+`;
+
+const SELECT_ORDER_ID_BY_EXT_ID_SQL = 'SELECT id FROM orders WHERE ext_id = $1';
 
 const SELECT_DELIVERY_ATTEMPTS_SQL = `
   SELECT da.supplier_code, da.attempt_no, da.state, da.delivery_generation, da.request_id,
@@ -210,6 +219,43 @@ async function payOrder(extId: string, amountMajor: number, eventId: string): Pr
   expect(body.order_status).toBe(ORDER_STATUS.PAID);
 }
 
+// оплата напрямую в базе: вебхук ставит джобу сам и всегда с полным JOB_MAX_ATTEMPTS, а тесту
+// нужен урезанный бюджет ретраев (IEnqueueJobInput.maxAttempts). Плата за это — ledger и
+// payment_events здесь не наполняются, поэтому и не проверяются
+async function markOrderPaid(extId: string): Promise<number> {
+  await api.dataSource.query(MARK_ORDER_PAID_SQL, [extId]);
+
+  // id читается отдельным SELECT, а не через UPDATE ... RETURNING: на UPDATE драйвер отдаёт
+  // [rows, rowCount], и rows[0].id молча вышел бы undefined
+  const rows = await api.dataSource.query<Array<{ id: string }>>(SELECT_ORDER_ID_BY_EXT_ID_SQL, [extId]);
+  const row = rows[0];
+
+  if (row === undefined) {
+    throw new Error(`Заказ ${extId} не найден в базе`);
+  }
+
+  // orders.id — bigint, драйвер отдаёт его строкой; payload задачи обязан нести число
+  // (см. isDeliverOrderPayload)
+  return Number(row.id);
+}
+
+async function enqueueDeliverOrder(orderId: number, extId: string, maxAttempts: number): Promise<void> {
+  const unitOfWork = api.get(UnitOfWorkService);
+  const queue = api.get(JobQueueService);
+  const jobId = await unitOfWork.withTransaction((qr) =>
+    queue.enqueue(qr, {
+      kind: JOB_KIND.DELIVER_ORDER,
+      dedupeKey: buildDeliverOrderDedupeKey(extId),
+      payload: { orderId, ext_id: extId, generation: 0 },
+      runAt: new Date(),
+      traceId: null,
+      maxAttempts,
+    }),
+  );
+
+  expect(jobId).not.toBeNull();
+}
+
 async function fetchOrderStatus(extId: string): Promise<string> {
   const rows = await api.dataSource.query<IOrderRow[]>(SELECT_ORDER_STATUS_BY_EXT_ID_SQL, [extId]);
   const row = rows[0];
@@ -296,6 +342,19 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
 
     expect(issued).toHaveLength(1);
     expect(issued[0]).toMatchObject({ source: DELIVERY_SOURCE.SUPPLIER, supplier_code: SUPPLIER_CODE.A });
+
+    // M18, критерий 4: недостаточно посчитать строки. Выданный код обязан быть ТЕМ ЖЕ, что
+    // заглушка заминтила на зависшем первом вызове, а у самой заглушки должна быть ровно одна
+    // выдача. Без этих двух проверок регрессия, при которой реплей минтит новый код (новый
+    // request_id), прошла бы: строк issued_deliveries всё равно одна
+    const lookup = await getJson<IStubIssueBody>(stubA.baseUrl, `/issue/${attempts[0].request_id}`);
+
+    expect(lookup.status).toBe(200);
+    expect(issued[0].code).toBe(lookup.body.code);
+
+    const stateA = await getJson<IStubControlState>(stubA.baseUrl, '/_control/state');
+
+    expect(stateA.body.issuedCount).toBe(1);
   });
 
   // H2, регрессия: A заминтил код, но API его ответа так и не увидел. После исчерпания бюджета
@@ -439,9 +498,17 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
   });
 
-  it('finalizes delivery_failed when both suppliers exhaust the http_5xx retry budget within a single job claim', async () => {
-    await forceScenario(stubA, 'error_5xx', 2);
-    await forceScenario(stubB, 'error_5xx', 2);
+  // M7: ожидание между повторами к одному поставщику отдано очереди (run_at джобы) вместо
+  // блокирующего sleep() внутри прогона. Поэтому каждая 5xx-попытка теперь стоит одного claim'а,
+  // и джоба доходит до delivery_failed на прогоне, где pickSupplier вернул null. Строк попыток
+  // и итог заказа это не меняет — меняется только то, что воркер в это время свободен
+  it('finalizes delivery_failed once both suppliers exhaust the http_5xx retry budget across job claims', async () => {
+    const perSupplier = api.get(AppConfigService).supplier.maxAttemptsPerSupplier;
+    // один прогон на каждую попытку к поставщику плюс прогон, на котором pickSupplier вернул null
+    const expectedClaims = FALLBACK_CHAIN.length * perSupplier + 1;
+
+    await forceScenario(stubA, 'error_5xx', perSupplier);
+    await forceScenario(stubB, 'error_5xx', perSupplier);
 
     const extId = await createOrder(SUPPLIER_SKU);
 
@@ -451,13 +518,13 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
       api.dataSource,
       buildDeliverOrderDedupeKey(extId),
       (row) => row.state === JOB_STATE.DONE,
+      POLL_RESOLVE_TIMEOUT_MS,
     );
 
-    // http_5xx повторяет того же поставщика через встроенный sleep() внутри одного прогона
-    // fulfil() (см. settleStep) — бюджет SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER=2 исчерпывается на
-    // обоих поставщиках без выхода за пределы одной claim джобы (нет throw, только continue),
-    // после чего pickSupplier возвращает null и finalizeExhausted завершает заказ delivery_failed
-    expect(job.attempts).toBe(1);
+    // каждая попытка к поставщику = прогон с retry_required, последний прогон завершает заказ
+    expect(job.attempts).toBe(expectedClaims);
+    // JOB_COMPLETE_SQL обнуляет last_error, поэтому успешно завершённая джоба чиста, несмотря
+    // на четыре промежуточных отказа
     expect(job.last_error).toBeNull();
 
     expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERY_FAILED);
@@ -469,6 +536,99 @@ describe('supplier delivery via the real scheduled job worker (WORKER_ENABLED=tr
     expect(attempts[1]).toMatchObject({ supplier_code: SUPPLIER_CODE.A, attempt_no: 2, state: ATTEMPT_STATE.FAILED });
     expect(attempts[2]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 1, state: ATTEMPT_STATE.FAILED });
     expect(attempts[3]).toMatchObject({ supplier_code: SUPPLIER_CODE.B, attempt_no: 2, state: ATTEMPT_STATE.FAILED });
+
+    expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
+  });
+
+  // регрессия: неоднозначный 5xx (500 с телом не по контракту — прокси/LB/ingress) стоит одному
+  // поставщику (SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS + 1) × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER
+  // прогонов джобы, то есть больше, чем JOB_MAX_ATTEMPTS. Бюджет джобы кончается, когда B ещё ни
+  // разу не спрошен, и объявлять delivery_failed («отказали ВСЕ поставщики», критерий 5) в этот
+  // момент — ложь. Джоба обязана уйти в dead, заказ — остаться delivering: его забирает pass 2
+  // свипера (нет issued_deliveries, dead живой джобой не считается) и отдаёт B со свежим бюджетом
+  it('leaves the job dead instead of claiming delivery_failed while supplier B was never contacted', async () => {
+    const config = api.get(AppConfigService);
+    const jobMaxAttempts = config.jobs.maxAttempts;
+
+    // с запасом: счётчик сценария расходует только POST /issue, GET /issue/:request_id — нет
+    await forceScenario(stubA, 'error_5xx_garbage', jobMaxAttempts + 2);
+
+    const extId = await createOrder(SUPPLIER_SKU);
+
+    await payOrder(extId, SUPPLIER_SKU_AMOUNT_MAJOR, 'evt_worker_supplier_budget_exhausted');
+
+    const job = await pollJobUntil(
+      api.dataSource,
+      buildDeliverOrderDedupeKey(extId),
+      (row) => row.state === JOB_STATE.DEAD || row.state === JOB_STATE.DONE,
+      POLL_RESOLVE_TIMEOUT_MS,
+    );
+
+    expect(job.state).toBe(JOB_STATE.DEAD);
+    expect(job.attempts).toBe(jobMaxAttempts);
+
+    // подпись дефекта: delivery_failed при нуле попыток к B
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERING);
+
+    const attempts = await fetchDeliveryAttempts(extId);
+
+    expect(attempts.filter((row) => row.supplier_code === SUPPLIER_CODE.B)).toHaveLength(0);
+    expect(attempts.length).toBeGreaterThan(0);
+
+    const stateB = await getJson<IStubControlState>(stubB.baseUrl, '/_control/state');
+
+    expect(stateB.body.issuedCount).toBe(0);
+    expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
+  });
+
+  // регрессия ко второму предусловию forceDeliveryFailedIfExhausted: pickSupplier === null ещё
+  // не значит «отказали ВСЕ поставщики ОПРЕДЕЛЁННО». Здесь A исчерпал бюджет http_5xx
+  // (определённые отказы), а B ответил таймаутом, и его попытка ОТКРЫТА в unknown ниже потолка
+  // дозвонов — то есть B мог выдать код, которого мы не видели. delivery_failed в этот момент —
+  // та же ложь, что и при непрошенном B (тест выше), плюс открытая строка держит
+  // ON CONFLICT (order_id) в INSERT_DELIVERY_ATTEMPT_SQL. Бюджет джобы урезан до
+  // 2 × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1 — минимума, который принимает cross-rule
+  // окружения; на дефолтных восьми прогонах B успевает добрать resolve_attempts до потолка и
+  // уйти в авторитетный GET, и дефект не виден
+  it('leaves the job dead instead of claiming delivery_failed while an ambiguous attempt to B stays open', async () => {
+    const config = api.get(AppConfigService);
+    const perSupplier = config.supplier.maxAttemptsPerSupplier;
+    const jobMaxAttempts = FALLBACK_CHAIN.length * perSupplier + 1;
+
+    await forceScenario(stubA, 'error_5xx', perSupplier);
+    // с запасом: B обязан зависать на каждом слепом реплее до конца бюджета джобы
+    await forceScenario(stubB, 'timeout', jobMaxAttempts);
+
+    const extId = await createOrder(SUPPLIER_SKU);
+    const orderId = await markOrderPaid(extId);
+
+    await enqueueDeliverOrder(orderId, extId, jobMaxAttempts);
+
+    const job = await pollJobUntil(
+      api.dataSource,
+      buildDeliverOrderDedupeKey(extId),
+      (row) => row.state === JOB_STATE.DEAD || row.state === JOB_STATE.DONE,
+      POLL_RESOLVE_TIMEOUT_MS,
+    );
+
+    expect(job.state).toBe(JOB_STATE.DEAD);
+    expect(job.attempts).toBe(jobMaxAttempts);
+
+    // подпись дефекта: delivery_failed по открытой неоднозначной попытке
+    expect(await fetchOrderStatus(extId)).toBe(ORDER_STATUS.DELIVERING);
+
+    const attempts = await fetchDeliveryAttempts(extId);
+    const lastAttempt = attempts[attempts.length - 1];
+
+    expect(attempts).toHaveLength(perSupplier + 1);
+    expect(lastAttempt).toMatchObject({
+      supplier_code: SUPPLIER_CODE.B,
+      attempt_no: 1,
+      state: ATTEMPT_STATE.UNKNOWN,
+    });
+    // строго ниже потолка ⇒ resolve-путь (авторитетный GET) ещё не включался, и статус заявки
+    // у B действительно неизвестен — именно поэтому отказ по ней объявлять нельзя
+    expect(lastAttempt.resolve_attempts).toBeLessThan(config.supplier.unknownMaxResolveAttempts);
 
     expect(await fetchIssuedDeliveries(extId)).toHaveLength(0);
   });

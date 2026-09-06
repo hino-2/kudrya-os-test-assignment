@@ -4,6 +4,7 @@ import {
   DELIVERY_ATTEMPT_UNKNOWN_RETRY_MESSAGE_TEMPLATE,
   ORDER_NOT_FOUND_FOR_DELIVERY_MESSAGE_TEMPLATE,
   SUPPLIER_JOB_LAST_ATTEMPT_MESSAGE_TEMPLATE,
+  SUPPLIER_UNAVAILABLE_RETRY_MESSAGE_TEMPLATE,
   UNKNOWN_FULFILLMENT_MODE_MESSAGE_TEMPLATE,
 } from './delivery.constants';
 
@@ -27,6 +28,10 @@ export function buildDeliveryAttemptUnknownRetryMessage(requestId: string): stri
 
 export function buildAllSuppliersFailedMessage(reason: string): string {
   return formatTemplate(ALL_SUPPLIERS_FAILED_MESSAGE_TEMPLATE, reason);
+}
+
+export function buildSupplierUnavailableRetryMessage(supplierCode: string): string {
+  return formatTemplate(SUPPLIER_UNAVAILABLE_RETRY_MESSAGE_TEMPLATE, supplierCode);
 }
 
 export function buildSupplierJobLastAttemptMessage(reason: string): string {

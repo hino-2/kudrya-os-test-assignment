@@ -2,9 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import type { QueryRunner } from 'typeorm';
 
+import { AppConfigService } from '../common/config/app-config.service';
 import { DomainError } from '../common/errors/domain.error';
 import { ERROR_CODE } from '../common/errors/errors.constants';
 import { AppLoggerService } from '../common/logging/app-logger.service';
+import { LOG_EVENT } from '../common/logging/logging.constants';
 import { computeNextRunAt } from './backoff.util';
 import {
   JOB_CLAIM_SQL,
@@ -32,21 +34,38 @@ import { buildJobErrorText } from './jobs.util';
 export class JobQueueService {
   constructor(
     private readonly dataSource: DataSource,
+    private readonly config: AppConfigService,
     private readonly logger: AppLoggerService,
   ) {
     this.logger.setContext('JobQueueService');
   }
 
+  // null означает, что ON CONFLICT (kind, dedupe_key) WHERE state IN ('pending','running')
+  // отбросил вставку: живая джоба уже есть, и она может нести устаревшее поколение. Каждый
+  // вызывающий обязан ветвиться на null, поэтому предупреждение пишется здесь — одним местом
+  // на все пути постановки
   async enqueue(qr: QueryRunner, input: IEnqueueJobInput): Promise<number | null> {
     this.assertTransaction(qr);
 
     const rows = await this.dataSource.query<IJobIdRow[]>(
       JOB_ENQUEUE_SQL,
-      [input.kind, input.dedupeKey, JSON.stringify(input.payload), input.runAt, input.traceId],
+      [
+        input.kind,
+        input.dedupeKey,
+        JSON.stringify(input.payload),
+        input.runAt,
+        input.traceId,
+        input.maxAttempts ?? this.config.jobs.maxAttempts,
+      ],
       qr,
     );
+    const id = rows[0]?.id ?? null;
 
-    return rows[0]?.id ?? null;
+    if (id === null) {
+      this.logger.event(LOG_EVENT.JOB_ENQUEUE_SKIPPED, { kind: input.kind, dedupe_key: input.dedupeKey });
+    }
+
+    return id;
   }
 
   async claim(qr: QueryRunner, input: IClaimJobsInput): Promise<IJobRow[]> {

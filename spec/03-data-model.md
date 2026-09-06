@@ -32,6 +32,9 @@ CREATE TABLE products (
   CONSTRAINT products_type_ck       CHECK (type IN ('key','topup','subscription','giftcard')),
   CONSTRAINT products_mode_ck       CHECK (fulfillment_mode IN ('pool','supplier')),
   CONSTRAINT products_price_ck      CHECK (price_minor > 0),
+  -- added by 1756600000006-PriceMinorGranularity: the webhook only accepts whole major units,
+  -- so a price like 49999 would make the order unpayable forever (every payment rejected_amount)
+  CONSTRAINT products_price_granularity_ck CHECK (price_minor % 100 = 0),
   CONSTRAINT products_currency_ck   CHECK (currency = 'RUB'),
   CONSTRAINT products_mode_type_ck  CHECK ((type = 'key') = (fulfillment_mode = 'pool'))
 ) WITH (fillfactor = 90);

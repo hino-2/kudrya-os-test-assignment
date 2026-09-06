@@ -41,18 +41,25 @@ describe('suppliers.util', () => {
   });
 
   describe('isSupplierSuccessBody', () => {
-    it('accepts a body with a non-empty string code, ignoring other fields', () => {
-      expect(isSupplierSuccessBody({ code: 'AAAA-BBBB-CCCC' })).toBe(true);
+    it('accepts a contract-shaped success body, ignoring other fields', () => {
+      expect(isSupplierSuccessBody({ status: 'ok', code: 'AAAA-BBBB-CCCC' })).toBe(true);
       expect(isSupplierSuccessBody({ status: 'ok', code: 'X', extra: 123 })).toBe(true);
     });
 
     it('rejects a missing, empty or non-string code', () => {
-      expect(isSupplierSuccessBody({})).toBe(false);
-      expect(isSupplierSuccessBody({ code: '' })).toBe(false);
-      expect(isSupplierSuccessBody({ code: 123 })).toBe(false);
+      expect(isSupplierSuccessBody({ status: 'ok' })).toBe(false);
+      expect(isSupplierSuccessBody({ status: 'ok', code: '' })).toBe(false);
+      expect(isSupplierSuccessBody({ status: 'ok', code: 123 })).toBe(false);
       expect(isSupplierSuccessBody(null)).toBe(false);
       expect(isSupplierSuccessBody(undefined)).toBe(false);
       expect(isSupplierSuccessBody('not-an-object')).toBe(false);
+    });
+
+    // M4: sub-400 ответ с непустым code, но не в контракте успеха поставщика, трактовался как
+    // выданный заказ — включая {"status":"error","reason":...,"code":...}
+    it('rejects a body whose status is not the contract success marker', () => {
+      expect(isSupplierSuccessBody({ code: 'AAAA-BBBB-CCCC' })).toBe(false);
+      expect(isSupplierSuccessBody({ status: 'error', reason: 'upstream', code: 'X' })).toBe(false);
     });
   });
 

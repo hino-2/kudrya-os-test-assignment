@@ -110,6 +110,21 @@ describe('validateEnv', () => {
     ).toThrowError(/CATALOG_DEFAULT_LIMIT/);
   });
 
+  // M7: http_5xx больше не ждётся внутри прогона, поэтому каждая попытка к поставщику стоит
+  // прогона джобы. Пара JOB_MAX_ATTEMPTS=2 / SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER=2 проходила
+  // по отдельности, но убивала фолбэк A→B — до B дело просто не доходило
+  it('rejects a JOB_MAX_ATTEMPTS budget too small to exhaust the supplier chain', () => {
+    expect(() =>
+      validateEnv({ ...VALID_ENV, JOB_MAX_ATTEMPTS: '2', SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2' }),
+    ).toThrowError(/JOB_MAX_ATTEMPTS должен быть не меньше 5/);
+  });
+
+  it('accepts the exact JOB_MAX_ATTEMPTS budget the supplier chain needs', () => {
+    const env = validateEnv({ ...VALID_ENV, JOB_MAX_ATTEMPTS: '5', SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2' });
+
+    expect(env.JOB_MAX_ATTEMPTS).toBe(5);
+  });
+
   it('surfaces an unrelated scalar issue together with a cross-field violation in a single pass', () => {
     expect.assertions(3);
 

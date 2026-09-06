@@ -1,3 +1,4 @@
+import { FALLBACK_CHAIN } from '../../suppliers/suppliers.constants';
 import type { IEnvCrossRule, IEnvVarSpec } from './config.interfaces';
 
 export const ENV_FILE_PATHS = ['.env', '../../.env'] as const;
@@ -86,6 +87,25 @@ export const ENV_CROSS_RULES: readonly IEnvCrossRule[] = [
             name: 'JOB_RETRY_BASE_MS',
             reason: 'JOB_RETRY_BASE_MS не может превышать JOB_RETRY_MAX_MS',
           },
+  },
+  {
+    // ожидание между повторами к одному поставщику отдано очереди (см. continueOrRetry):
+    // каждая http_5xx-попытка стоит отдельного прогона джобы, а не sleep внутри прогона.
+    // Поэтому поставщик B впервые получает запрос на прогоне SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1,
+    // а на исчерпание всей цепочки нужно FALLBACK_CHAIN.length × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1
+    // прогонов. При меньшем JOB_MAX_ATTEMPTS джоба умирает раньше, чем дело доходит до B:
+    // фолбэк A→B (критерий 5 задания) молча перестаёт существовать, и в логах об этом ничего нет.
+    fields: ['JOB_MAX_ATTEMPTS', 'SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER'],
+    check: (env) => {
+      const required = FALLBACK_CHAIN.length * env.SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1;
+
+      return env.JOB_MAX_ATTEMPTS >= required
+        ? null
+        : {
+            name: 'JOB_MAX_ATTEMPTS',
+            reason: `JOB_MAX_ATTEMPTS должен быть не меньше ${required} (поставщиков ${FALLBACK_CHAIN.length} × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER=${env.SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER} + 1 прогон на завершение), иначе бюджет джобы кончается до фолбэка A→B`,
+          };
+    },
   },
   {
     // /admin/* минтит остатки и бампит поколение доставки, поэтому в production токен обязан

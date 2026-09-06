@@ -1,5 +1,5 @@
 import { toMajor } from '../common/money/money.util';
-import type { ICatalogPage, ICatalogRow } from './catalog.interfaces';
+import type { ICatalogRow } from './catalog.interfaces';
 import type { CatalogItemResponseDto } from './dto/catalog-item.response.dto';
 import type { CatalogPageResponseDto } from './dto/catalog-page.response.dto';
 
@@ -17,11 +17,9 @@ export function toCatalogItem(row: ICatalogRow): CatalogItemResponseDto {
   };
 }
 
-export function toCatalogPage(page: ICatalogPage, limit: number): CatalogPageResponseDto {
+export function toCatalogPage(rows: ICatalogRow[], limit: number): CatalogPageResponseDto {
   return {
-    items: page.rows.map((row) => toCatalogItem(row)),
-    next_cursor: null,
-    has_more: page.hasMore,
+    items: rows.map((row) => toCatalogItem(row)),
     limit,
   };
 }

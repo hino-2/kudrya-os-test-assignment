@@ -40,6 +40,16 @@ interface IPaymentEventRow {
   ignore_reason: string | null;
 }
 
+// фикстурные товары стоят 1000 минор-единиц (см. INSERT_*_PRODUCT_SQL), а вебхук принимает
+// только целые major-суммы
+const FIXTURE_AMOUNT_MAJOR = 10;
+
+const MARK_JOB_DEAD_SQL = `
+  UPDATE jobs
+  SET state = 'dead', last_error = 'supplier_unavailable', finished_at = now(), locked_at = NULL, locked_by = NULL
+  WHERE dedupe_key = $1
+`;
+
 const MARK_STALE_RUNNING_SQL = `
   UPDATE jobs
   SET state = 'running', locked_at = now() - ($2 || ' milliseconds')::interval, locked_by = 'dead-worker'
@@ -117,6 +127,18 @@ async function enqueue(overrides: Partial<IEnqueueJobInput>): Promise<number | n
   const input = buildEnqueueInput(overrides);
 
   return unitOfWork.withTransaction((qr) => queue.enqueue(qr, input));
+}
+
+async function postJson(path: string, payload: unknown): Promise<{ status: number }> {
+  const response = await fetch(`${harness.baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  await response.text();
+
+  return { status: response.status };
 }
 
 async function insertPoolProduct(): Promise<number> {
@@ -270,6 +292,40 @@ describe('sweeper (recovery passes)', () => {
     const updatedOrder = await fetchOrder(order.ext_id);
 
     expect(updatedOrder.status).toBe(ORDER_STATUS.PAID);
+    expect(updatedOrder.delivery_generation).toBe(0);
+  });
+
+  // регрессия к отказу форсить delivery_failed, пока цепочка поставщиков не исчерпана
+  // (см. SupplierFulfilmentService.forceDeliveryFailedIfExhausted): заказ остаётся в delivering
+  // с dead-джобой, и единственное, что не даёт ему застрять там навсегда, — pass 2. Поэтому
+  // проверяется именно то, что dead живой джобой не считается, а поколение не бампится:
+  // иначе история попыток обнулилась бы и непробованный поставщик снова не получил бы очереди
+  it('pass 2: requeues a delivering order whose delivery job went dead', async () => {
+    const sweeper = harness.get(SweeperService);
+    const productId = await insertSupplierProduct(1);
+    const order = await insertOrder({
+      productId,
+      status: ORDER_STATUS.DELIVERING,
+      paidAt: new Date(),
+      updatedAtAgeSeconds: 2,
+    });
+    const dedupeKey = buildDeliverOrderDedupeKey(order.ext_id);
+
+    await enqueue({ dedupeKey, payload: { orderId: order.id, ext_id: order.ext_id, generation: 0 } });
+    await harness.dataSource.query(MARK_JOB_DEAD_SQL, [dedupeKey]);
+
+    const result = await sweeper.runOnce();
+
+    expect(result.requeuedStuckOrders).toBe(1);
+
+    const jobs = await fetchJobsByDedupeKey(dedupeKey);
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs.filter((job) => job.state === JOB_STATE.PENDING)).toHaveLength(1);
+
+    const updatedOrder = await fetchOrder(order.ext_id);
+
+    expect(updatedOrder.status).toBe(ORDER_STATUS.DELIVERING);
     expect(updatedOrder.delivery_generation).toBe(0);
   });
 
@@ -531,6 +587,31 @@ describe('sweeper (recovery passes)', () => {
     expect(await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id))).toBeUndefined();
   });
 
+  // M12: живая deliver_order job означает, что попытку ведёт сам прогон джобы (TX-S1 / HTTP /
+  // TX-S2). Демоция посреди этого окна ломала CAS finalizeSucceeded, и попытка оставалась
+  // unknown и ОТКРЫТОЙ на уже выданном заказе — вечная пища для редрайва pass 5b
+  it('pass 5a: leaves a stale in_flight attempt alone while a live delivery job owns it', async () => {
+    const sweeper = harness.get(SweeperService);
+    const productId = await insertSupplierProduct(5);
+    const order = await insertOrder({ productId, status: ORDER_STATUS.DELIVERING, paidAt: new Date() });
+    const attemptId = await insertAttempt({
+      orderId: order.id,
+      state: ATTEMPT_STATE.IN_FLIGHT,
+      startedAt: new Date(Date.now() - 5000),
+    });
+
+    await enqueue({ dedupeKey: buildDeliverOrderDedupeKey(order.ext_id) });
+
+    const result = await sweeper.runOnce();
+
+    expect(result.demotedStaleInflight).toBe(0);
+
+    const attempt = await fetchAttempt(attemptId);
+
+    expect(attempt.state).toBe(ATTEMPT_STATE.IN_FLIGHT);
+    expect(attempt.resolve_attempts).toBe(0);
+  });
+
   it('pass 5a: leaves a fresh in_flight attempt alone', async () => {
     const sweeper = harness.get(SweeperService);
     const productId = await insertSupplierProduct(5);
@@ -603,6 +684,43 @@ describe('sweeper (recovery passes)', () => {
     const job = await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(order.ext_id));
 
     expect(job).toBeDefined();
+  });
+
+  // Критерий 3 задания, целиком через продакшн-путь: вебхук приходит РАНЬШЕ заказа, паркуется
+  // контроллером как orphan, и после появления заказа реплеится свипером. Прежние две спеки
+  // проверяли половины по отдельности, а orphan-строку вставляли руками с синтетическим
+  // raw_payload — расхождение формы записи контроллера и разбора реплея прошло бы незамеченным
+  it('pass 6a: pays an order whose webhook arrived before it existed', async () => {
+    const sweeper = harness.get(SweeperService);
+    const sku = `SW-CRIT3-${uniqueId()}`;
+    const rows = await harness.dataSource.query<Array<{ id: number }>>(INSERT_SUPPLIER_PRODUCT_SQL, [sku]);
+
+    await harness.dataSource.query(INSERT_SKU_STOCK_SQL, [rows[0].id, 5]);
+
+    const extId = `ord_crit3_${uniqueId()}`;
+    const eventId = `evt_crit3_${uniqueId()}`;
+    const early = await postJson('/webhooks/payment', {
+      event_id: eventId,
+      order_id: extId,
+      status: 'paid',
+      amount: FIXTURE_AMOUNT_MAJOR,
+      currency: 'RUB',
+      created_at: new Date().toISOString(),
+    });
+
+    expect(early.status).toBe(200);
+    expect((await fetchPaymentEvent(eventId)).state).toBe(PAYMENT_EVENT_STATE.ORPHAN);
+
+    const created = await postJson('/orders', { sku, client_order_id: extId });
+
+    expect(created.status).toBe(201);
+
+    const result = await sweeper.runOnce();
+
+    expect(result.replayedOrphans).toBe(1);
+    expect((await fetchPaymentEvent(eventId)).state).toBe(PAYMENT_EVENT_STATE.APPLIED);
+    expect((await fetchOrder(extId)).status).toBe(ORDER_STATUS.PAID);
+    expect(await fetchJobByDedupeKey(buildDeliverOrderDedupeKey(extId))).toBeDefined();
   });
 
   it('pass 6b: abandons an orphan payment event past the TTL with no matching order', async () => {

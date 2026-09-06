@@ -186,6 +186,7 @@ kudrya-os-test-assignment/
 │   │       ├── 1756600000003-InitDelivery.ts      # delivery_attempts, issued_deliveries
 │   │       ├── 1756600000004-InitJobs.ts          # jobs
 │   │       ├── 1756600000005-AddAttemptGeneration.ts # delivery_attempts.delivery_generation + slot uq
+│   │       ├── 1756600000006-PriceMinorGranularity.ts # products.price_minor % 100 = 0
 │   │       └── StorefrontIndexes.ts               # stage-5 hot-path indexes (не реализовано — рамки этапов 1–3)
 │   └── test/
 │       ├── helpers/pg.helper.ts               # truncate + reset sequences between tests

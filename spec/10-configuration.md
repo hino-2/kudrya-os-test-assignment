@@ -52,6 +52,8 @@
 
 Cross-field rules (checked in the same aggregated pass): `CATALOG_DEFAULT_LIMIT <= CATALOG_MAX_LIMIT`, `SUPPLIER_RETRY_BASE_MS <= SUPPLIER_RETRY_MAX_MS`, `JOB_RETRY_BASE_MS <= JOB_RETRY_MAX_MS`, and — when `NODE_ENV=production` **and** `ADMIN_API_ENABLED=true` — `ADMIN_TOKEN` must be non-empty, must differ from the published `dev-admin-token`, and must be at least 32 characters. **The admin API is off unless explicitly enabled**, and production cannot boot into the "empty token disables the guard" state; that escape hatch stays available for development only.
 
+One more cross-field rule, added with §6's move of the same-supplier retry onto the queue: `JOB_MAX_ATTEMPTS >= 2 × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1`. Since an `http_5xx` retry now costs one job attempt instead of an in-handler sleep, supplier B is first contacted on job run `SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1`, and exhausting both suppliers takes `2 × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1`. Both ranges are otherwise independent, so the env-legal pair `JOB_MAX_ATTEMPTS=2` with `SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER=2` would silently lose the A→B fallback — acceptance criterion 5 — with nothing in the logs naming the untried supplier. The rule turns that into a boot failure.
+
 ### 10.2 `apps/supplier-stub`
 
 | Var | Type | Default | Meaning |

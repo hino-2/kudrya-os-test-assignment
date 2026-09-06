@@ -47,7 +47,6 @@ Rejected alternative: hand-rolled validators — for ~9 endpoints they would cos
 | `type` | optional, `@IsIn(['key','topup','subscription','giftcard'])` |
 | `in_stock` | optional, `@IsBooleanString()`, default `true` |
 | `limit` | optional int, `@Min(1) @Max(100)`, default 24 |
-| `cursor` | optional, `@Matches(CURSOR_REGEX)` (base64url) |
 | `q` | optional, `@Length(1,64) @Matches(/^[A-Za-z0-9_-]+$/)` — SKU prefix |
 
 `200`:
@@ -55,9 +54,11 @@ Rejected alternative: hand-rolled validators — for ~9 endpoints they would cos
 { "items": [ { "sku":"STEAM-TOPUP-500","name":"Пополнение Steam 500 ₽","type":"topup",
                "amount_minor":50000,"amount":500,"currency":"RUB",
                "image":"assets/steam.png","available_count":1000,"in_stock":true } ],
-  "next_cursor": "U1RFQU0t...", "has_more": true, "limit": 24 }
+  "limit": 24 }
 ```
 Errors: `400 VALIDATION_FAILED`.
+
+**One page, no cursor.** Keyset pagination is stage-5 work and out of scope here, so the contract does not carry `cursor`, `next_cursor` or `has_more`: a half-wired `has_more: true` would promise pages that no request can reach. `ORDER BY (sku, id)` and `sku COLLATE "C"` stay — they are what makes the single page stable — but the query fetches exactly `limit` rows, not `limit + 1`.
 
 **`GET /catalog/:sku`** — `sku` `@Matches(/^[A-Za-z0-9._-]{1,64}$/)`. `200` one item; `404 PRODUCT_NOT_FOUND`.
 
@@ -136,9 +137,9 @@ All under `/admin`, all require `x-admin-token: $ADMIN_TOKEN`, all return `403 A
 
 | Endpoint | Body | Behaviour | Codes |
 |---|---|---|---|
-| `POST /admin/products/:sku/restock` | `{ "codes": ["A-B-C"] }` **or** `{ "count": 25 }` (`@IsInt() @Min(1) @Max(10000)`) | pool: insert `stock_keys`, bump `sku_stock`, set `in_stock`. supplier: set `available_count`, call the stub's `/_control/restock`. One transaction. | `200 {added, available_count, supplier_restock}` (`supplier_restock` is `null` for pool, and a per-supplier outcome array for supplier mode — the counter is bumped before the network call, so a failed restock must be visible in the response); `404`; `400` |
-| `POST /admin/orders/:orderId/redeliver` | `{ "reason": "..." }` optional | `ADMIN_REDELIVER`: only from `out_of_stock`/`delivery_failed`; `delivery_generation += 1`; enqueue. **Refuses if `issued_deliveries` already has a row.** | `202 {enqueued:true, generation}`; `409 ORDER_ALREADY_DELIVERED`; `409 ORDER_NOT_RECOVERABLE` |
-| `POST /admin/orders/:orderId/force-paid` | `{ "event_id": "evt_x" }` — the conflicting event to resolve | `ADMIN_FORCE_PAID` from `payment_failed`; posts `payment_captured`; enqueues delivery; marks the event resolved. WARN log. | `202`; `409 ILLEGAL_TRANSITION` |
+| `POST /admin/products/:sku/restock` | `{ "codes": ["A-B-C"] }` (each `@Length(1,128) @Matches(/^[A-Za-z0-9._-]+$/)`, `@ArrayMaxSize(10000)`) **or** `{ "count": 25 }` (`@IsInt() @Min(1) @Max(10000)`) | pool: insert `stock_keys`, bump `sku_stock`, set `in_stock`. supplier: set `available_count`, call the stub's `/_control/restock`. One transaction. | `200 {added, available_count, supplier_restock}` (`supplier_restock` is `null` for pool, and a per-supplier outcome array for supplier mode — the counter is bumped before the network call, so a failed restock must be visible in the response); `404`; `400` |
+| `POST /admin/orders/:orderId/redeliver` | `{ "reason": "..." }` optional | `ADMIN_REDELIVER`: only from `out_of_stock`/`delivery_failed`; `delivery_generation += 1`; enqueue. **Refuses if `issued_deliveries` already has a row.** | `202 {enqueued, generation}` — `enqueued` is `false` when a live job already holds the dedupe key and `ON CONFLICT DO NOTHING` drops the insert; the generation bump has still happened, so the status stays `202` and the flag tells the truth instead of claiming a job that does not exist; `409 ORDER_ALREADY_DELIVERED`; `409 ORDER_NOT_RECOVERABLE` |
+| ~~`POST /admin/orders/:orderId/force-paid`~~ | ~~`{ "event_id": "evt_x" }`~~ | **Superseded, not implemented.** It existed only to resolve the `paid`-after-`payment_failed` conflict, and §5.3 now applies that event automatically (amount + staleness guards gate it, and it logs at `warn`). `ORDER_EVENT.ADMIN_FORCE_PAID` stays in the transition table as the manual hatch; wiring a producer for it would need the reconciliation view that surfaces conflicts, which is stage-4 work. | — |
 | `POST /admin/orders/:orderId/refund` | `{ "reason": "..." }` | Posts `payment_refunded` for an order stuck in `out_of_stock`. Order status unchanged (audit-only). | `200`; `409` |
 | `POST /admin/jobs/drain` | `{ "max_cycles": 20 }` optional | Runs the worker loop synchronously until the queue is empty or `max_cycles` is reached. **Demo/test convenience only.** | `200 {cycles, processed}` |
 | `POST /admin/sweeper/run` | — | One sweeper cycle, synchronously; returns per-pass counts. | `200` |

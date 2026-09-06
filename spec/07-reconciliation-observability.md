@@ -52,10 +52,12 @@ timed<T>(name: LogEventName, data: Readonly<Record<string, unknown>>, fn: () => 
 
 | Level | Events |
 |---|---|
-| `info` | `order.created`, `payment.received`, `payment.applied`, `delivery.enqueued`, `delivery.started`, `delivery.attempt.created`, `delivery.attempt.succeeded`, `delivery.completed`, `delivery.out_of_stock`, `job.claimed`, `job.succeeded`, `ledger.txn_posted`, `sweeper.cycle`, `reconcile.cycle` |
-| `warn` | `payment.duplicate`, `payment.orphan`, `payment.ignored_stale`, `payment.ignored_terminal`, `delivery.attempt.timeout`, `delivery.attempt.unknown`, `delivery.attempt.resolving`, `delivery.fallback`, `job.retry_scheduled`, `sweeper.requeued`, `reconcile.drift_repaired`, `db.serialization_retry`, `stub.scenario_forced` |
-| `error` | `payment.conflict`, `payment.amount_mismatch`, `delivery.failed`, `delivery.stranded_issuance`, `job.dead`, `job.worker_tick_failed`, `ledger.imbalance_detected`, `attempt.inflight_expired` |
+| `info` | `order.created`, `payment.received`, `payment.applied`, `delivery.enqueued`, `delivery.started`, `delivery.attempt.created`, `delivery.attempt.succeeded`, `delivery.completed`, `delivery.out_of_stock`, `job.claimed`, `job.succeeded`, `ledger.txn_posted`, `sweeper.cycle`, `reconcile.cycle`, `app.started`, `http.request`, `db.connected` |
+| `warn` | `payment.duplicate`, `payment.orphan`, `payment.ignored_stale`, `payment.ignored_terminal`, `payment.failed_escaped`, `delivery.attempt.timeout`, `delivery.attempt.unknown`, `delivery.attempt.resolving`, `delivery.attempt.resolved`, `delivery.attempt.cas_lost`, `delivery.fallback`, `job.retry_scheduled`, `job.enqueue_skipped`, `job.ownership_lost`, `sweeper.requeued`, `reconcile.drift_repaired`, `inventory.recounted`, `db.serialization_retry`, `stub.scenario_forced`, `admin.restock`, `admin.redeliver` |
+| `error` | `payment.conflict`, `payment.amount_mismatch`, `delivery.failed`, `delivery.stranded_issuance`, `job.dead`, `job.worker_tick_failed`, `ledger.imbalance_detected`, `attempt.inflight_expired`, `supplier.restock_failed`, `sweeper.tick_failed`, `app.boot_failed`, `app.uncaught_exception`, `app.unhandled_rejection`, `http.error` |
 | `debug` | `supplier.request`, `supplier.response`, `catalog.query` |
+
+The code is the authority here, not this table: `LOG_EVENT_LEVEL` is declared `Readonly<Record<LogEventName, LogLevel>>`, so adding a `LOG_EVENT` without giving it a level is a **compile error**, and the 55 entries above are the complete set at the time of writing. `payment.failed_escaped` is the `warn` that fires when a genuinely newer provider `paid` lifts an order out of `payment_failed` (§5.3) — the one transition that leaves a status the assignment calls final, so it must be greppable and not hide inside an ordinary `payment.applied`. Every `payment.*` event additionally carries `from_status`, which is what makes that escape distinguishable at all.
 
 Rule for developers: **every `payment.*` and `delivery.*` path emits exactly one terminal event.** A code path that can end without a log line is a defect. This is what the assignment means by "структурированные логи по платежам и выдаче".
 
@@ -141,7 +143,7 @@ LIMIT $1;
 | # | Selects | Threshold | Action |
 |---|---|---|---|
 | 1 | `jobs` where `state='running' AND locked_at < now() - JOB_LOCK_TTL_MS` | 120 s | → `pending`, `run_at = now()`, `last_error='reclaimed_stale_lock'`. Recovers from a worker crash. |
-| 2 | `orders` where `paid_at IS NOT NULL AND status IN ('paid','delivering')`, no `issued_deliveries` row, no live `deliver_order` job, `updated_at < now() - STUCK_ORDER_AGE_SECONDS` | 60 s | enqueue `deliver_order` (`ON CONFLICT DO NOTHING`), WARN `sweeper.requeued` |
+| 2 | `orders` where `paid_at IS NOT NULL AND status IN ('paid','delivering')`, no `issued_deliveries` row, no live `deliver_order` job, `updated_at < now() - STUCK_ORDER_AGE_SECONDS` | 60 s | enqueue `deliver_order` (`ON CONFLICT DO NOTHING`) **at the same `delivery_generation`**, WARN `sweeper.requeued` |
 | 3 | `orders` where `status='out_of_stock'` and `sku_stock.available_count > 0` for its product, `updated_at < now() - OUT_OF_STOCK_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 30 s / 5 gens | `RETRY_DELIVERY`, `delivery_generation += 1`, enqueue |
 | 4 | `orders` where `status='delivery_failed' AND updated_at < now() - DELIVERY_FAILED_RETRY_SECONDS` and `delivery_generation < MAX_DELIVERY_GENERATIONS` | 300 s / 5 gens | `RETRY_DELIVERY`, enqueue |
 | 5 | `delivery_attempts` where `state='unknown' AND next_resolve_at <= now() AND resolve_attempts < SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` and whose order is still `paid`/`delivering`; plus `state='in_flight' AND started_at < now() - ATTEMPT_INFLIGHT_TIMEOUT_MS` demoted to `unknown` first | 30 s | **claim** (`UPDATE … SET resolve_attempts += 1, next_resolve_at = now() + SUPPLIER_RETRY_MAX_MS … RETURNING`), then enqueue `deliver_order` |

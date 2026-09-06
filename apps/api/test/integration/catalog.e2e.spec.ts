@@ -65,8 +65,8 @@ describe('GET /catalog', () => {
     expect(status).toBe(200);
     expect(body.items).toHaveLength(12);
     expect(body.limit).toBe(TEST_CATALOG_DEFAULT_LIMIT);
-    expect(body.has_more).toBe(false);
-    expect(body.next_cursor).toBeNull();
+    // M11: контракт витрины — ровно одна страница, поля курсора в ответе нет вообще
+    expect(Object.keys(body).sort()).toEqual(['items', 'limit']);
 
     expect(itemBySku(body, 'STEAM-TOPUP-500')).toMatchObject({
       name: 'Пополнение Steam 500 ₽',
@@ -114,12 +114,14 @@ describe('GET /catalog', () => {
     expect(body.items.every((item) => item.in_stock)).toBe(true);
   });
 
-  it('honours limit and reports that more rows exist', async () => {
+  // страница обрезается ровно по limit: строка limit + 1 больше не запрашивается, потому что
+  // has_more (единственный её потребитель) снят вместе с недоведённой keyset-пагинацией
+  it('honours limit and truncates the single page', async () => {
     const { body } = await get<CatalogPageResponseDto>('/catalog?limit=5');
 
     expect(body.items).toHaveLength(5);
     expect(body.limit).toBe(5);
-    expect(body.has_more).toBe(true);
+    expect(body.items.map((item) => item.sku)).toEqual(SEEDED_SKUS_IN_BYTE_ORDER.slice(0, 5));
   });
 
   it('clamps the requested limit to CATALOG_MAX_LIMIT', async () => {
@@ -128,7 +130,6 @@ describe('GET /catalog', () => {
     expect(status).toBe(200);
     expect(body.limit).toBe(TEST_CATALOG_MAX_LIMIT);
     expect(body.items).toHaveLength(12);
-    expect(body.has_more).toBe(false);
   });
 
   it('filters by sku prefix', async () => {
@@ -137,7 +138,6 @@ describe('GET /catalog', () => {
 
     expect(matching.body.items).toHaveLength(3);
     expect(empty.body.items).toHaveLength(0);
-    expect(empty.body.has_more).toBe(false);
   });
 
   it('escapes LIKE metacharacters in the sku prefix', async () => {

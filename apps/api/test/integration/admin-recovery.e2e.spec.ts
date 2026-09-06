@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { ADMIN_TOKEN_HEADER } from '../../src/admin/admin.constants';
+import {
+  ADMIN_TOKEN_HEADER,
+  RESTOCK_CODE_MAX_LENGTH,
+  RESTOCK_COUNT_MAX,
+} from '../../src/admin/admin.constants';
 import type { RedeliverResponseDto } from '../../src/admin/dto/redeliver.response.dto';
 import type { RestockResponseDto } from '../../src/admin/dto/restock.response.dto';
 import type { SweeperRunResponseDto } from '../../src/admin/dto/sweeper-run.response.dto';
@@ -50,6 +54,12 @@ const INSERT_ISSUED_DELIVERY_SQL = `
 `;
 
 const SELECT_JOB_BY_DEDUPE_KEY_SQL = 'SELECT * FROM jobs WHERE dedupe_key = $1';
+
+// живая (pending) джоба доставки с тем же dedupe_key — цель частичного jobs_live_uq
+const INSERT_LIVE_JOB_SQL = `
+  INSERT INTO jobs (kind, dedupe_key, payload, run_at)
+  VALUES ('deliver_order', $1, '{}'::jsonb, now())
+`;
 
 interface IOrderRow {
   id: number;
@@ -142,9 +152,13 @@ async function insertIssuedDelivery(order: IOrderRow, productId: number): Promis
 }
 
 async function jobExistsForDedupeKey(dedupeKey: string): Promise<boolean> {
+  return (await jobCountForDedupeKey(dedupeKey)) > 0;
+}
+
+async function jobCountForDedupeKey(dedupeKey: string): Promise<number> {
   const rows = await harness.dataSource.query(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
 
-  return rows.length > 0;
+  return rows.length;
 }
 
 beforeAll(async () => {
@@ -278,6 +292,36 @@ describe('POST /admin/products/:sku/restock', () => {
     expect(body.error.code).toBe('VALIDATION_FAILED');
   });
 
+  // M19: единственной границей у codes был лимит тела express — пустые строки и произвольные
+  // блобы уезжали прямиком в stock_keys.code
+  it.each([
+    ['an empty code', ['']],
+    ['a code with characters outside the code alphabet', ['ok-1', 'bad code']],
+    ['an over-long code', ['x'.repeat(RESTOCK_CODE_MAX_LENGTH + 1)]],
+  ])('rejects %s with 400', async (_label, codes) => {
+    const sku = `AD-POOL-${uniqueId()}`;
+    const productId = await insertPoolProduct(sku);
+    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, { codes });
+
+    expect(status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+    expect(await availableCountOf(productId)).toBe(0);
+  });
+
+  it('rejects a codes array over the batch cap with 400', async () => {
+    const sku = `AD-POOL-${uniqueId()}`;
+
+    await insertPoolProduct(sku);
+
+    // односимвольные коды: тело с 10001 длинным кодом упирается в лимит body-parser'а раньше,
+    // чем в @ArrayMaxSize, и отдаёт 500 PayloadTooLargeError вместо 400
+    const codes = Array.from({ length: RESTOCK_COUNT_MAX + 1 }, () => 'x');
+    const { status, body } = await post<IErrorEnvelope>(`/admin/products/${sku}/restock`, { codes });
+
+    expect(status).toBe(400);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
   it('returns 404 for an unknown sku', async () => {
     const { status, body } = await post<IErrorEnvelope>('/admin/products/AD-UNKNOWN-SKU/restock', { count: 1 });
 
@@ -313,6 +357,27 @@ describe('POST /admin/orders/:orderId/redeliver', () => {
 
     expect(status).toBe(202);
     expect(body).toEqual({ enqueued: true, generation: 3 });
+  });
+
+  // M8: живая джоба по этому заказу отбрасывает вставку (ON CONFLICT DO NOTHING). Поколение
+  // при этом уже забампилось, а выжившая джоба несёт прежнее — заказ подхватит только pass 2
+  // свипера. Ответ обязан это сказать: раньше API отдавал enqueued: true при нулевой постановке
+  it('reports enqueued=false when a live delivery job already holds the dedupe key', async () => {
+    const productId = await insertSupplierProduct(`AD-SUP-${uniqueId()}`, 5);
+    const order = await insertOrder(productId, ORDER_STATUS.OUT_OF_STOCK, 1);
+    const dedupeKey = buildDeliverOrderDedupeKey(order.ext_id);
+
+    await harness.dataSource.query(INSERT_LIVE_JOB_SQL, [dedupeKey]);
+
+    const { status, body } = await post<RedeliverResponseDto>(`/admin/orders/${order.ext_id}/redeliver`, {});
+
+    expect(status).toBe(202);
+    expect(body).toEqual({ enqueued: false, generation: 2 });
+
+    const updatedOrder = await fetchOrder(order.ext_id);
+
+    expect(updatedOrder.delivery_generation).toBe(2);
+    expect(await jobCountForDedupeKey(dedupeKey)).toBe(1);
   });
 
   it('rejects an already-delivered order with 409', async () => {

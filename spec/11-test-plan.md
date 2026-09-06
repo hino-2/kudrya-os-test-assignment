@@ -69,8 +69,7 @@ Third case: a duplicate arriving *before* the first is applied — the same `eve
 | **Orphan drained on order creation** | then `POST /orders {sku, client_order_id:'ord_early_1'}` | response `201`; `waitFor(status==='delivered')`; the orphan event is now `state='applied'`, `order_id` set; exactly 1 `issued_deliveries` row |
 | **Orphan drained by the sweeper** | same, but with the order inserted directly via SQL so the in-transaction drain is bypassed | `POST /admin/sweeper/run`; then `waitFor(delivered)` |
 | **`failed` after `paid`** | apply `paid`, wait `delivered`, then send `failed` with a **later** `created_at` | `200 {result:'conflict'}`; `orders.status` still `delivered`; `payment_events.state='conflict'`; `GET /reconciliation/payment-conflicts` returns it; 1 `issued_deliveries` row; ledger balanced |
-| **`paid` after `failed`** | apply `failed` (→ `payment_failed`), then `paid` | `200 {result:'conflict'}`; status still `payment_failed`; **zero** ledger entries; **zero** `issued_deliveries`; conflict reported |
-| **Recovery from that conflict** | `POST /admin/orders/ord_x/force-paid {event_id}` | `202`; `waitFor(delivered)`; exactly 1 delivery; ledger balanced |
+| **`paid` after `failed`** | apply `failed` (→ `payment_failed`), then `paid` with a **later** `created_at` | **Revised (§5.3):** `200 {result:'applied'}`; status `paid`; `failure_reason` cleared; exactly 1 `payment_captured` txn; 1 `deliver_order` job enqueued |
 | **Stale `created_at`** | apply `paid` at `T`, then send another `paid` (distinct `event_id`) with `created_at = T - 60s` | `200 {result:'ignored_stale'}`; nothing changes |
 | **Amount mismatch** | `paid` with `amount: 999` for a 500 order | `200 {result:'rejected_amount'}`; status still `created`; zero ledger entries |
 

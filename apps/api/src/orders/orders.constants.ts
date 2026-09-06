@@ -32,10 +32,12 @@ export const ORDER_STATUS_VALUES = Object.values(ORDER_STATUS);
 
 export const ORDER_EVENT_VALUES = Object.values(ORDER_EVENT);
 
-export const TERMINAL_ORDER_STATUSES = [
-  ORDER_STATUS.DELIVERED,
-  ORDER_STATUS.PAYMENT_FAILED,
-] as const;
+// terminal = «эту строку уже ничто не изменит», и таких статусов ровно один. payment_failed
+// сюда не входит: вторая попытка списания у провайдера легально ведёт payment_failed → paid →
+// … → delivered (см. TRANSITION_TABLE), поэтому клиент, который увидел terminal=true и перестал
+// опрашивать, не узнал бы о выдаче. Восстанавливаемым payment_failed тоже не является: он ждёт
+// внешнего стимула, а не нашего ретрая (см. RECOVERABLE_ORDER_STATUSES и isRecoverable).
+export const TERMINAL_ORDER_STATUSES = [ORDER_STATUS.DELIVERED] as const;
 
 export const RECOVERABLE_ORDER_STATUSES = [
   ORDER_STATUS.OUT_OF_STOCK,
@@ -86,7 +88,10 @@ export const TRANSITION_TABLE: Readonly<
     [ORDER_EVENT.DELIVERY_FAILED]: { kind: TRANSITION_KIND.NOOP },
   },
   [ORDER_STATUS.PAYMENT_FAILED]: {
-    [ORDER_EVENT.PAYMENT_PAID]: { kind: TRANSITION_KIND.CONFLICT },
+    // вторая попытка списания, которая прошла: событие новее последнего применённого
+    // (guardStaleness это проверяет), значит провайдер деньги захватил. Отказ был бы тупиком —
+    // проводки payment_captured нет, а продюсера ADMIN_FORCE_PAID в системе не существует
+    [ORDER_EVENT.PAYMENT_PAID]: { kind: TRANSITION_KIND.APPLY, to: ORDER_STATUS.PAID },
     [ORDER_EVENT.PAYMENT_FAILED]: { kind: TRANSITION_KIND.NOOP },
     [ORDER_EVENT.ADMIN_FORCE_PAID]: { kind: TRANSITION_KIND.APPLY, to: ORDER_STATUS.PAID },
   },
@@ -136,6 +141,8 @@ export const ORDER_EXT_ID_TAKEN_MESSAGE = 'Сгенерированный иде
 
 export const ORDER_TRANSACTION_REQUIRED_MESSAGE = 'Операция требует открытой транзакции';
 
+export const ORDER_TRANSITION_LOST_MESSAGE = 'CAS-переход заказа не нашёл строку в ожидаемом статусе';
+
 export const ORDER_NEXT_EXT_ID_SQL = `
   SELECT 'ord_' || lpad(nextval('order_ext_seq')::text, 5, '0') AS ext_id
 `;
@@ -161,10 +168,14 @@ export const ORDER_LOCK_BY_EXT_ID_SQL = `
   SELECT * FROM orders WHERE ext_id = $1 FOR UPDATE
 `;
 
+// paid_at ставится серверными часами, а не временем платёжной системы: перекошенный или
+// враждебный created_at уводил его в будущее или в 1970, а idx_orders_paid_undelivered и любая
+// сверка «оплачен, но не выдан» по давности строятся именно на paid_at. Время провайдера
+// остаётся в last_payment_event_at и payment_events.occurred_at.
 export const ORDER_TRANSITION_SQL = `
   UPDATE orders
   SET status = $3, updated_at = now(),
-      paid_at = COALESCE($4, paid_at),
+      paid_at = CASE WHEN $4 THEN COALESCE(paid_at, now()) ELSE paid_at END,
       delivering_at = COALESCE($5, delivering_at),
       delivered_at = COALESCE($6, delivered_at),
       failure_reason = $7,

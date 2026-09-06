@@ -47,6 +47,8 @@ export const SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE = 'Поставщик верн
 
 export const DELIVERY_ATTEMPT_UNKNOWN_RETRY_MESSAGE_TEMPLATE = 'Статус попытки %s остаётся неизвестным — требуется повтор задачи для дозвона к поставщику';
 
+export const SUPPLIER_UNAVAILABLE_RETRY_MESSAGE_TEMPLATE = 'Поставщик %s ответил 5xx — повтор задачи с бэкоффом очереди';
+
 export const ALL_SUPPLIERS_FAILED_MESSAGE_TEMPLATE = 'Не удалось выдать заказ ни у одного поставщика: %s';
 
 export const DELIVERY_FULFILMENT_SERVICES = 'DELIVERY_FULFILMENT_SERVICES';
@@ -200,15 +202,25 @@ export const MARK_ATTEMPT_ABANDONED_SQL = `
 // sweeper pass 5a: попытки, зависшие в in_flight дольше attemptInflightTimeoutMs — воркер,
 // скорее всего, умер после TX-S1 коммита, не успев дождаться ответа поставщика. Нет
 // специализированного индекса под этот скан (см. README §4.3, осознанный компромисс).
+//
+// Гард NOT EXISTS (живая deliver_order job) — тот же, что у pass 2
+// (ORDER_FIND_STUCK_PAID_DELIVERING_SQL): без него демоция попадала между TX-S1 и TX-S2 живого
+// прогона, CAS finalizeSucceeded не находил строку, и попытка оставалась unknown и ОТКРЫТОЙ на
+// уже выданном заказе — вечная пища для редрайва pass 5b.
 export const DEMOTE_STALE_INFLIGHT_SQL = `
   UPDATE delivery_attempts a
   SET state = 'unknown', error_kind = 'inflight_expired', error_reason = $2,
       resolve_attempts = resolve_attempts + 1, next_resolve_at = now(), updated_at = now()
   FROM (
-    SELECT id FROM delivery_attempts
-    WHERE state = 'in_flight' AND started_at < now() - ($1 || ' milliseconds')::interval
-    ORDER BY id
-    FOR UPDATE SKIP LOCKED
+    SELECT da.id FROM delivery_attempts da
+    JOIN orders o ON o.id = da.order_id
+    WHERE da.state = 'in_flight' AND da.started_at < now() - ($1 || ' milliseconds')::interval
+      AND NOT EXISTS (
+        SELECT 1 FROM jobs j
+        WHERE j.kind = 'deliver_order' AND j.dedupe_key = 'order:' || o.ext_id AND j.state IN ('pending','running')
+      )
+    ORDER BY da.id
+    FOR UPDATE OF da SKIP LOCKED
     LIMIT $3
   ) stale
   WHERE a.id = stale.id

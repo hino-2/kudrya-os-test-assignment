@@ -177,7 +177,9 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
       }
 
       const nextGeneration = row.delivery_generation + 1;
-      const updated = await this.orders.transition(qr, row.id, row.status, rule.to, {
+      // tryTransition, а не transition: батч выбран FOR UPDATE SKIP LOCKED, и проигранный
+      // CAS означает лишь, что заказ увели между выборкой и переходом — легитимный no-op
+      const updated = await this.orders.tryTransition(qr, row.id, row.status, rule.to, {
         deliveryGeneration: nextGeneration,
       });
 
@@ -290,6 +292,10 @@ export class SweeperService implements OnApplicationBootstrap, OnModuleDestroy {
     return count;
   }
 
+  // отброшенная вставка (ON CONFLICT DO NOTHING) не отменяет уже сделанный переход заказа:
+  // живая джоба несёт прежнее поколение и скипнется, а заказ подберёт pass 2 по давности.
+  // Лучшего действия внутри этой транзакции нет, поэтому исход только логируется —
+  // предупреждение пишет сам JobQueueService.enqueue (job.enqueue_skipped)
   private async enqueueDeliverOrder(
     qr: QueryRunner,
     orderId: number,

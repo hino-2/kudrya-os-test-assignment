@@ -15,7 +15,7 @@ import { JobQueueService } from '../jobs/job-queue.service';
 import { LEDGER_TXN_KIND } from '../ledger/ledger.constants';
 import { LedgerService } from '../ledger/ledger.service';
 import { buildBalancedLegs, buildPaymentCapturedKey } from '../ledger/ledger.util';
-import { TRANSITION_KIND } from '../orders/orders.constants';
+import { ORDER_STATUS, TRANSITION_KIND } from '../orders/orders.constants';
 import { resolveTransition } from '../orders/order-state-machine';
 import type { IOrderRow } from '../orders/orders.interfaces';
 import { OrdersRepository } from '../orders/orders.repository';
@@ -81,6 +81,7 @@ export class PaymentWebhookService {
       result: outcome.result,
       order_id: input.orderExtId,
       event_id: outcome.eventId,
+      from_status: outcome.fromStatus,
     };
 
     if (outcome.result === WEBHOOK_RESULT.CONFLICT || outcome.result === WEBHOOK_RESULT.REJECTED_AMOUNT) {
@@ -106,6 +107,7 @@ export class PaymentWebhookService {
       return {
         result: WEBHOOK_RESULT.DUPLICATE,
         orderStatus: null,
+        fromStatus: null,
         eventId: input.eventId,
         paymentEventId: null,
         jobId: null,
@@ -131,6 +133,7 @@ export class PaymentWebhookService {
       return {
         result: WEBHOOK_RESULT.ORPHAN,
         orderStatus: null,
+        fromStatus: null,
         eventId: input.eventId,
         paymentEventId: eventId,
         jobId: null,
@@ -172,6 +175,7 @@ export class PaymentWebhookService {
     return {
       result: WEBHOOK_RESULT.CONFLICT,
       orderStatus: order.status,
+      fromStatus: order.status,
       eventId: input.eventId,
       paymentEventId: eventId,
       jobId: null,
@@ -204,6 +208,7 @@ export class PaymentWebhookService {
     return {
       result: WEBHOOK_RESULT.REJECTED_AMOUNT,
       orderStatus: order.status,
+      fromStatus: order.status,
       eventId: input.eventId,
       paymentEventId: eventId,
       jobId: null,
@@ -232,6 +237,7 @@ export class PaymentWebhookService {
     return {
       result: WEBHOOK_RESULT.IGNORED_STALE,
       orderStatus: order.status,
+      fromStatus: order.status,
       eventId: input.eventId,
       paymentEventId: eventId,
       jobId: null,
@@ -262,6 +268,7 @@ export class PaymentWebhookService {
     return {
       result,
       orderStatus: order.status,
+      fromStatus: order.status,
       eventId: input.eventId,
       paymentEventId: eventId,
       jobId: null,
@@ -276,8 +283,9 @@ export class PaymentWebhookService {
     to: OrderStatus,
   ): Promise<IWebhookOutcome> {
     const isPaid = input.status === PAYMENT_STATUS.PAID;
-    const updated = await this.orders.transition(qr, order.id, order.status, to, {
-      paidAt: isPaid ? input.occurredAt : undefined,
+    // tryTransition, а не transition: у пути есть собственное сообщение с ext_id заказа
+    const updated = await this.orders.tryTransition(qr, order.id, order.status, to, {
+      markPaid: isPaid,
       failureReason: isPaid ? undefined : PAYMENT_FAILED_REASON,
       lastPaymentEventId: input.eventId,
       lastPaymentEventAt: input.occurredAt,
@@ -326,9 +334,22 @@ export class PaymentWebhookService {
       appliedToStatus: updated.status,
     });
 
+    // единственный переход, уводящий заказ из статуса, который задание считает финальным.
+    // Пишется здесь, а не в handle(): через applyTransition проходит и повтор осиротевшего
+    // события свипером (replayOrphans), у которого своего payment.applied нет
+    if (order.status === ORDER_STATUS.PAYMENT_FAILED) {
+      this.logger.event(LOG_EVENT.PAYMENT_FAILED_ESCAPED, {
+        order_id: order.ext_id,
+        event_id: input.eventId,
+        from_status: order.status,
+        to_status: updated.status,
+      });
+    }
+
     return {
       result: WEBHOOK_RESULT.APPLIED,
       orderStatus: updated.status,
+      fromStatus: order.status,
       eventId: input.eventId,
       paymentEventId: eventId,
       jobId,

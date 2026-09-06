@@ -54,7 +54,9 @@ const TRANSITION_CASES: readonly ITransitionCase[] = [
   { from: 'delivered', event: 'ADMIN_FORCE_PAID', kind: 'illegal' },
   { from: 'delivered', event: 'ADMIN_REDELIVER', kind: 'illegal' },
 
-  { from: 'payment_failed', event: 'PAYMENT_PAID', kind: 'conflict' },
+  // M2: вторая попытка списания, прошедшая после отказа, обязана применяться — иначе заказ
+  // навсегда payment_failed без проводки payment_captured, а продюсера ADMIN_FORCE_PAID нет
+  { from: 'payment_failed', event: 'PAYMENT_PAID', kind: 'apply', to: 'paid' },
   { from: 'payment_failed', event: 'PAYMENT_FAILED', kind: 'noop' },
   { from: 'payment_failed', event: 'DELIVERY_STARTED', kind: 'illegal' },
   { from: 'payment_failed', event: 'DELIVERY_SUCCEEDED', kind: 'illegal' },
@@ -106,9 +108,10 @@ describe('order-state-machine', () => {
     });
 
     it('keeps the documented kind distribution', () => {
-      expect(countByKind('apply')).toBe(13);
+      expect(countByKind('apply')).toBe(14);
       expect(countByKind('noop')).toBe(13);
-      expect(countByKind('conflict')).toBe(6);
+      // на одну меньше: payment_failed + PAYMENT_PAID перестал быть тупиком (M2)
+      expect(countByKind('conflict')).toBe(5);
       expect(countByKind('illegal')).toBe(31);
     });
   });
@@ -156,10 +159,22 @@ describe('order-state-machine', () => {
       }
     });
 
-    it('leaves a terminal status only through ADMIN_FORCE_PAID on payment_failed', () => {
+    // terminal значит «ничто не изменит эту строку», поэтому переходов ИЗ терминального статуса
+    // не существует в принципе. payment_failed из TERMINAL_ORDER_STATUSES убран именно поэтому:
+    // из него легально уходят PAYMENT_PAID и ADMIN_FORCE_PAID (проверяются ниже)
+    it('never leaves a terminal status', () => {
       const escapes = TRANSITION_CASES.filter((entry) => entry.kind === 'apply' && isTerminal(entry.from));
 
-      expect(escapes).toEqual([{ from: 'payment_failed', event: 'ADMIN_FORCE_PAID', kind: 'apply', to: 'paid' }]);
+      expect(escapes).toEqual([]);
+    });
+
+    it('leaves payment_failed only towards paid', () => {
+      const escapes = TRANSITION_CASES.filter((entry) => entry.kind === 'apply' && entry.from === 'payment_failed');
+
+      expect(escapes).toEqual([
+        { from: 'payment_failed', event: 'PAYMENT_PAID', kind: 'apply', to: 'paid' },
+        { from: 'payment_failed', event: 'ADMIN_FORCE_PAID', kind: 'apply', to: 'paid' },
+      ]);
     });
   });
 
@@ -168,7 +183,9 @@ describe('order-state-machine', () => {
       const terminal = isTerminal(status);
       const recoverable = isRecoverable(status);
 
-      expect(terminal).toBe(status === 'delivered' || status === 'payment_failed');
+      // payment_failed не терминален (из него легально уходит вторая попытка списания)
+      // и не восстанавливаем (нашего ретрая для него нет — он ждёт внешнего стимула)
+      expect(terminal).toBe(status === 'delivered');
       expect(recoverable).toBe(status === 'out_of_stock' || status === 'delivery_failed');
       expect(terminal && recoverable).toBe(false);
     });

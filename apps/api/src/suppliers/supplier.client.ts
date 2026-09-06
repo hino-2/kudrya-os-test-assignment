@@ -68,7 +68,7 @@ export class SupplierClient {
       const durationMs = Math.round(performance.now() - startedAt);
       const text = await response.text();
       const parsedBody = this.tryParseJson(text);
-      const outcome = this.classifyResponse(response.status, parsedBody);
+      const outcome = this.classifyResponse(response.status, parsedBody, input.requestId);
 
       this.logger.event(LOG_EVENT.SUPPLIER_RESPONSE, {
         supplier_code: input.supplierCode,
@@ -209,10 +209,21 @@ export class SupplierClient {
     };
   }
 
-  private classifyResponse(status: number, body: unknown): IssueOutcomeShape {
+  private classifyResponse(status: number, body: unknown, requestId: string): IssueOutcomeShape {
     if (status < HTTP_STATUS_CLIENT_ERROR_MIN) {
+      // эхо request_id обязательно, как и на resolve-шаге: ответ по чужой заявке ничего не
+      // говорит о нашей, а принятый за issued привязал бы чужой код к этому заказу и отравил
+      // бы джобу на issued_deliveries_code_uq
       if (isSupplierSuccessBody(body)) {
-        return { kind: SUPPLIER_OUTCOME.ISSUED, code: body.code, httpStatus: status, errorKind: null, errorReason: null };
+        return matchesRequestId(body, requestId)
+          ? { kind: SUPPLIER_OUTCOME.ISSUED, code: body.code, httpStatus: status, errorKind: null, errorReason: null }
+          : {
+              kind: SUPPLIER_OUTCOME.UNKNOWN,
+              code: null,
+              httpStatus: status,
+              errorKind: SUPPLIER_ERROR_KIND.BAD_BODY,
+              errorReason: SUPPLIER_REQUEST_ID_MISMATCH_REASON,
+            };
       }
 
       return {

@@ -4,6 +4,7 @@ import {
   SUPPLIER_ERROR_KIND,
   SUPPLIER_ERROR_STATUS,
   SUPPLIER_GENERATION_MARKER,
+  SUPPLIER_OK_STATUS,
   SUPPLIER_ORDER_EXT_PREFIX,
   SUPPLIER_OUTCOME,
   SUPPLIER_OUT_OF_STOCK_REASON,
@@ -45,6 +46,9 @@ export function buildSupplierRequestId(
   ].join(SUPPLIER_REQUEST_ID_SEPARATOR);
 }
 
+// контракт успеха у поставщика — {"status":"ok", request_id, code}: без сверки status любой
+// sub-400 JSON с непустым code (например {"status":"error","reason":"...","code":"x"})
+// трактовался бы как выданный заказ
 export function isSupplierSuccessBody(
   body: unknown,
 ): body is ISupplierIssueSuccessBody & { code: string } {
@@ -54,7 +58,9 @@ export function isSupplierSuccessBody(
 
   const candidate = body as ISupplierIssueSuccessBody;
 
-  return typeof candidate.code === 'string' && candidate.code.length > 0;
+  return (
+    candidate.status === SUPPLIER_OK_STATUS && typeof candidate.code === 'string' && candidate.code.length > 0
+  );
 }
 
 // тело в контракте поставщика: {"status":"error", ...}. Отличает ответ самого поставщика от

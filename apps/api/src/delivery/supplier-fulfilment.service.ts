@@ -8,7 +8,7 @@ import { DomainError } from '../common/errors/domain.error';
 import { ERROR_CODE } from '../common/errors/errors.constants';
 import { AppLoggerService } from '../common/logging/app-logger.service';
 import { LOG_EVENT } from '../common/logging/logging.constants';
-import { computeBackoffMs, computeNextRunAt } from '../jobs/backoff.util';
+import { computeNextRunAt } from '../jobs/backoff.util';
 import { LEDGER_TXN_KIND } from '../ledger/ledger.constants';
 import { LedgerService } from '../ledger/ledger.service';
 import { buildBalancedLegs, buildDeliveryRecognizedKey } from '../ledger/ledger.util';
@@ -39,6 +39,7 @@ import {
   buildDeliveryAttemptUnknownRetryMessage,
   buildOrderNotFoundMessage,
   buildSupplierJobLastAttemptMessage,
+  buildSupplierUnavailableRetryMessage,
 } from './delivery.util';
 import type {
   IDeliveryAttemptRow,
@@ -49,10 +50,6 @@ import type {
   IResumedOpenAttempt,
 } from './delivery.interfaces';
 import type { PrepareStepResult, SettleStepResult, SettleVia } from './delivery.type';
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 // оркестрация выдачи через поставщика — split-транзакции TX-S1/HTTP/TX-S2 вокруг одного HTTP-вызова
 // (см. PoolFulfilmentService.runTxP для однотранзакционного аналога пула)
@@ -82,7 +79,14 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       // свипером, съедая один дозвон за HTTP-вызов, которого не было
       if (Date.now() >= deadline) {
         if (this.isLastAttempt(input)) {
-          return this.forceDeliveryFailed(input, buildSupplierJobLastAttemptMessage(SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE));
+          const forced = await this.forceDeliveryFailedIfExhausted(
+            input,
+            buildSupplierJobLastAttemptMessage(SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE),
+          );
+
+          if (forced !== null) {
+            return forced;
+          }
         }
 
         throw new DeliveryRetryRequiredError(SUPPLIER_JOB_BUDGET_EXCEEDED_MESSAGE, {
@@ -121,17 +125,20 @@ export class SupplierFulfilmentService implements IFulfilmentService {
 
       if (settled.kind === 'retry_required') {
         if (this.isLastAttempt(input)) {
-          return this.forceDeliveryFailed(input, buildSupplierJobLastAttemptMessage(settled.message));
+          const forced = await this.forceDeliveryFailedIfExhausted(
+            input,
+            buildSupplierJobLastAttemptMessage(settled.message),
+          );
+
+          if (forced !== null) {
+            return forced;
+          }
         }
 
         throw new DeliveryRetryRequiredError(settled.message, {
           baseMs: this.config.supplier.retryBaseMs,
           maxMs: this.config.supplier.retryMaxMs,
         });
-      }
-
-      if (settled.sleepMs !== null) {
-        await sleep(settled.sleepMs);
       }
     }
   }
@@ -143,8 +150,10 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   }
 
   // принудительное терминальное завершение на последней попытке джобы — отдельная транзакция,
-  // т.к. вызывается вместо throw из середины fulfil(), без уже открытого QueryRunner
-  private async forceDeliveryFailed(input: IFulfilInput, reason: string): Promise<IDeliveryResult> {
+  // т.к. вызывается вместо throw из середины fulfil(), без уже открытого QueryRunner.
+  // null означает «объявлять терминальный исход нельзя»: цепочка поставщиков ещё не исчерпана,
+  // и вызывающий обязан бросить исключение, как бросил бы на любой другой попытке
+  private async forceDeliveryFailedIfExhausted(input: IFulfilInput, note: string): Promise<IDeliveryResult | null> {
     return this.unitOfWork.withTransaction(async (qr) => {
       const order = await this.deliveryRepository.lockOrderForDelivery(qr, input.orderId);
 
@@ -156,12 +165,41 @@ export class SupplierFulfilmentService implements IFulfilmentService {
         return { outcome: DELIVERY_OUTCOME.SKIPPED, code: null };
       }
 
-      await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERY_FAILED, {
-        failureReason: reason,
-      });
-      this.logger.event(LOG_EVENT.DELIVERY_FAILED, { order_id: order.id, reason });
+      // delivery_failed утверждает «отказали ВСЕ поставщики» (критерий 5 задания), причём
+      // отказали ОПРЕДЕЛЁННО. Штатный путь (finalizeExhausted) достижим только из
+      // pickNextAttempt, то есть строго после resumeOpenAttempt === null, поэтому по открытой
+      // попытке он отказ не объявляет никогда — здесь то же предусловие проверяется явно, иначе
+      // инвариант был бы слабее штатного. unknown означает ровно «поставщик мог выдать код,
+      // которого мы не видели», и buildSupplierFailureReason списал бы его как отказ; плюс
+      // открытая строка держит ON CONFLICT (order_id) в INSERT_DELIVERY_ATTEMPT_SQL.
+      // findOpenAttempt намеренно не фильтрует по поколению (см. FIND_OPEN_ATTEMPT_SQL) — и это
+      // тот ответ, который здесь нужен: заявка любого поколения одинаково может нести невидимый
+      // код и одинаково блокирует вставку. Проверяется первой: LIMIT 1 против выборки всей
+      // истории поколения, которая на этом выходе уже не нужна
+      const open = await this.deliveryAttemptRepository.findOpenAttempt(qr, order.id);
 
-      return { outcome: DELIVERY_OUTCOME.DELIVERY_FAILED, code: null };
+      if (open !== null) {
+        return null;
+      }
+
+      // второе предусловие: пока pickSupplier возвращает выбор, «отказали все» тоже ложно — до
+      // кого-то просто не дошла очередь в пределах бюджета джобы (неоднозначный 5xx стоит
+      // поставщику unknownMaxResolveAttempts + 1 прогонов)
+      const attempts = await this.deliveryAttemptRepository.findAttemptsByOrder(qr, order.id, order.generation);
+
+      if (pickSupplier(attempts, this.config.supplier.maxAttemptsPerSupplier) !== null) {
+        return null;
+      }
+
+      // оба выхода в null ведут джобу в dead, а заказ оставляют в delivering: его забирает
+      // pass 2 свипера — нет issued_deliveries и нет живой джобы (dead живой не считается) — и
+      // отдаёт тому же поколению, поэтому история попыток не сбрасывается, открытая unknown
+      // добирает resolve_attempts до потолка, уходит в авторитетный GET /issue/:request_id и
+      // закрывается, после чего отказ объявляет уже штатный путь
+
+      // состояние доказано тем же предикатом, что и у штатного пути, поэтому и исход считает
+      // тот же код: out_of_stock против delivery_failed решается ровно в одном месте
+      return this.applyExhaustedOutcome(qr, order, attempts, note);
     });
   }
 
@@ -186,6 +224,11 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
     }
 
+    // здесь и во всех прочих переходах этого сервиса (включая forceDeliveryFailed) —
+    // бросающий transition, а не tryTransition: строка заказа держится
+    // LOCK_ORDER_FOR_DELIVERY_SQL … FOR UPDATE, а status прочитан ПОСЛЕ блокировки, поэтому
+    // 0 строк — сломанный инвариант с худшим режимом отказа: issued_deliveries записан,
+    // orders.status отстал, и свипер пере-ставит уже выданный заказ в очередь
     if (order.status === ORDER_STATUS.PAID) {
       this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
       await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});
@@ -295,6 +338,23 @@ export class SupplierFulfilmentService implements IFulfilmentService {
   }
 
   private async finalizeExhausted(qr: QueryRunner, order: ILockedOrderRow, attempts: IDeliveryAttemptRow[]): Promise<PrepareStepResult> {
+    return { kind: 'terminal', result: await this.applyExhaustedOutcome(qr, order, attempts, null) };
+  }
+
+  // единственное место, где исчерпанная цепочка превращается в терминальный статус: и штатный
+  // путь (finalizeExhausted из pickNextAttempt), и принудительный на последней попытке джобы
+  // ходят сюда. Разведение этих двух решений трижды кончалось расхождением (пропущенная
+  // проверка исчерпания, пропущенная проверка открытой попытки, потерянный out_of_stock),
+  // поэтому ветка живёт в одном экземпляре, а не зеркалится.
+  // note — необязательная приписка к сводке (форс-путь дописывает, что кончился бюджет джобы:
+  // сама сводка по поставщикам у обоих путей одинакова и этого не говорит). На out_of_stock
+  // приписка не идёт: там reason — константа, а не сводка
+  private async applyExhaustedOutcome(
+    qr: QueryRunner,
+    order: ILockedOrderRow,
+    attempts: IDeliveryAttemptRow[],
+    note: string | null,
+  ): Promise<IDeliveryResult> {
     const exhaustedOutcome = resolveExhaustedOutcome(attempts);
 
     if (exhaustedOutcome === DELIVERY_OUTCOME.OUT_OF_STOCK) {
@@ -303,17 +363,18 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       });
       this.logger.event(LOG_EVENT.DELIVERY_OUT_OF_STOCK, { order_id: order.id, generation: order.generation });
 
-      return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.OUT_OF_STOCK, code: null } };
+      return { outcome: DELIVERY_OUTCOME.OUT_OF_STOCK, code: null };
     }
 
-    const reason = buildSupplierFailureReason(attempts);
+    const summary = buildSupplierFailureReason(attempts);
+    const reason = note === null ? summary : `${summary} (${note})`;
 
     await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.DELIVERING, ORDER_STATUS.DELIVERY_FAILED, {
       failureReason: reason,
     });
     this.logger.event(LOG_EVENT.DELIVERY_FAILED, { order_id: order.id, reason });
 
-    return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.DELIVERY_FAILED, code: null } };
+    return { outcome: DELIVERY_OUTCOME.DELIVERY_FAILED, code: null };
   }
 
   private async settleStep(
@@ -348,8 +409,7 @@ export class SupplierFulfilmentService implements IFulfilmentService {
     // out_of_stock / rejected (4xx) / unavailable (connection_refused, 5xx) — определённая
     // неудача, продвигает attempt_no при следующем выборе поставщика
     const errorKind = this.requireErrorKind(outcome);
-
-    await this.deliveryAttemptRepository.finalizeFailed(qr, {
+    const finalized = await this.deliveryAttemptRepository.finalizeFailed(qr, {
       attemptId: attempt.id,
       httpStatus: outcome.httpStatus,
       errorKind,
@@ -357,23 +417,38 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       durationMs: outcome.durationMs,
     });
 
+    if (!finalized) {
+      this.logAttemptCasLost(order.id, attempt);
+    }
+
     if (stale) {
       return { kind: 'terminal', result: { outcome: DELIVERY_OUTCOME.SKIPPED, code: null } };
     }
 
-    return { kind: 'continue', sleepMs: this.sameSupplierBackoffMs(attempt, errorKind) };
+    return this.continueOrRetry(attempt, errorKind);
   }
 
-  // повтор того же поставщика допустим только при http_5xx (см. isRetriableSameSupplier) —
-  // pickSupplier на следующей итерации сам решит, повторять того же поставщика или идти дальше
-  private sameSupplierBackoffMs(attempt: IDeliveryAttemptRow, errorKind: SupplierErrorKind): number | null {
+  // повтор того же поставщика допустим только при http_5xx (см. isRetriableSameSupplier), и
+  // ждать его блокирующим sleep нельзя: воркер обрабатывает забранный батч последовательно,
+  // поэтому один заказ под 5xx-штормом держал остальные джобы бюджет × поставщики. Ожидание
+  // отдаётся очереди — run_at джобы уже умеет ровно это
+  private continueOrRetry(attempt: IDeliveryAttemptRow, errorKind: SupplierErrorKind): SettleStepResult {
     if (errorKind !== SUPPLIER_ERROR_KIND.HTTP_5XX) {
-      return null;
+      return { kind: 'continue' };
     }
 
-    return computeBackoffMs(attempt.attempt_no, {
-      baseMs: this.config.supplier.retryBaseMs,
-      maxMs: this.config.supplier.retryMaxMs,
+    return { kind: 'retry_required', message: buildSupplierUnavailableRetryMessage(attempt.supplier_code) };
+  }
+
+  // CAS обеих финализаций (finalizeSucceeded/finalizeFailed) ждёт попытку строго в in_flight,
+  // поэтому ожидаемое состояние здесь константа, а не параметр
+  private logAttemptCasLost(orderId: number, attempt: IDeliveryAttemptRow): void {
+    this.logger.event(LOG_EVENT.DELIVERY_ATTEMPT_CAS_LOST, {
+      order_id: orderId,
+      attempt_id: attempt.id,
+      supplier_code: attempt.supplier_code,
+      request_id: attempt.request_id,
+      expected_state: ATTEMPT_STATE.IN_FLIGHT,
     });
   }
 
@@ -421,10 +496,9 @@ export class SupplierFulfilmentService implements IFulfilmentService {
         return skipped;
       }
 
-      // тот же бэкофф, что и у определённой неудачи: pickSupplier на следующей итерации может
-      // повторить того же поставщика по сохранённому http_5xx, и делать это мгновенно после
-      // серии таймаутов и 404 бессмысленно
-      return { kind: 'continue', sleepMs: this.sameSupplierBackoffMs(attempt, errorKind) };
+      // то же правило, что и у определённой неудачи: сохранённый http_5xx разрешает повтор
+      // того же поставщика, но ждать его — работа очереди, а не блокирующего sleep в воркере
+      return this.continueOrRetry(attempt, errorKind);
     }
 
     // поставщик не ответил ни на бюджет слепых POST, ни на один авторитетный GET. Осознанный
@@ -443,7 +517,7 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       reason: 'unknown_unresolved_after_lookup',
     });
 
-    return stale ? skipped : { kind: 'continue', sleepMs: null };
+    return stale ? skipped : { kind: 'continue' };
   }
 
   private async settleIssued(
@@ -457,12 +531,20 @@ export class SupplierFulfilmentService implements IFulfilmentService {
       throw new DomainError(ERROR_CODE.INTERNAL_ERROR, SUPPLIER_ISSUED_WITHOUT_CODE_MESSAGE);
     }
 
-    await this.deliveryAttemptRepository.finalizeSucceeded(qr, {
+    // проигранный CAS = попытку увели между TX-S1 и TX-S2 (демоция свипером in_flight →
+    // unknown). Отказаться выдавать нельзя: код на руках принадлежит request_id ИМЕННО этой
+    // попытки, и отказ превратил бы доставляемый заказ в delivery_failed на последней попытке
+    // джобы. Поэтому WARN и выдача дальше — заказ важнее аккуратности строки попытки
+    const finalized = await this.deliveryAttemptRepository.finalizeSucceeded(qr, {
       attemptId: attempt.id,
       httpStatus: outcome.httpStatus,
       responseCode: outcome.code,
       durationMs: outcome.durationMs,
     });
+
+    if (!finalized) {
+      this.logAttemptCasLost(order.id, attempt);
+    }
 
     if (stale) {
       // поставщик выдал код, но заказ уже ушёл в новое поколение — приложить код некуда;

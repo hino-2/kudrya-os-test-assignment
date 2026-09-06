@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { AppConfigService } from '../../src/common/config/app-config.service';
 import { UnitOfWorkService } from '../../src/common/db/unit-of-work.service';
 import { JobQueueService } from '../../src/jobs/job-queue.service';
 import { JobWorkerService } from '../../src/jobs/job-worker.service';
@@ -166,6 +167,22 @@ describe('job queue + worker', () => {
 
     expect(rows[0].state).toBe(JOB_STATE.DEAD);
     expect(rows[0].last_error).toContain('dead branch');
+  });
+
+  // M3: JOB_ENQUEUE_SQL не писал max_attempts, поэтому все джобы получали DDL-дефолт, а
+  // JOB_MAX_ATTEMPTS был мёртвой конфигурацией — бюджет ретраев не настраивался ничем
+  it('writes max_attempts from the enqueue input and defaults it to the configured budget', async () => {
+    const dedupeKey = `job-queue-spec:max-attempts:${Math.random()}`;
+    const defaultKey = `job-queue-spec:max-attempts-default:${Math.random()}`;
+
+    await enqueue({ dedupeKey, maxAttempts: 2 });
+    await enqueue({ dedupeKey: defaultKey });
+
+    const [trimmed] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [dedupeKey]);
+    const [defaulted] = await harness.dataSource.query<IJobRow[]>(SELECT_JOB_BY_DEDUPE_KEY_SQL, [defaultKey]);
+
+    expect(trimmed.max_attempts).toBe(2);
+    expect(defaulted.max_attempts).toBe(harness.get(AppConfigService).jobs.maxAttempts);
   });
 
   it('deduplicates concurrent enqueue calls sharing the same dedupe key', async () => {

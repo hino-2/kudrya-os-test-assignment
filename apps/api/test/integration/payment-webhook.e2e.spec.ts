@@ -1,7 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ERROR_CODE } from '../../src/common/errors/errors.constants';
 import type { IErrorEnvelope } from '../../src/common/errors/errors.interfaces';
+import { JsonLogger } from '../../src/common/logging/json-logger';
+import { LOG_EVENT } from '../../src/common/logging/logging.constants';
 import { PAYMENT_FAILED_REASON } from '../../src/payments/payments.constants';
 import type { PaymentWebhookResponseDto } from '../../src/payments/dto/payment-webhook.response.dto';
 import type { CreateOrderResponseDto } from '../../src/orders/dto/create-order.response.dto';
@@ -29,6 +31,11 @@ interface IOrderStatusRow {
   failure_reason: string | null;
 }
 
+interface IOrderStampsRow {
+  paid_at: Date | null;
+  last_payment_event_at: Date | null;
+}
+
 const TOPUP_SKU = 'STEAM-TOPUP-500';
 
 const AMOUNT_MAJOR = 500;
@@ -48,6 +55,11 @@ const COUNT_PAYMENT_EVENTS_SQL = 'SELECT count(*)::int AS count FROM payment_eve
 const SELECT_PAYMENT_EVENT_SQL = 'SELECT order_id, state FROM payment_events WHERE event_id = $1';
 
 const SELECT_ORDER_STATUS_SQL = 'SELECT status, failure_reason FROM orders WHERE ext_id = $1';
+
+const SELECT_ORDER_STAMPS_SQL = 'SELECT paid_at, last_payment_event_at FROM orders WHERE ext_id = $1';
+
+// запас на расхождение часов процесса и Postgres при сверке серверной метки paid_at
+const CLOCK_SKEW_MS = 60000;
 
 let harness: IApiHarness;
 
@@ -95,6 +107,17 @@ async function storedOrderStatus(extId: string): Promise<IOrderStatusRow> {
   return row;
 }
 
+async function storedOrderStamps(extId: string): Promise<IOrderStampsRow> {
+  const rows = await harness.dataSource.query<IOrderStampsRow[]>(SELECT_ORDER_STAMPS_SQL, [extId]);
+  const row = rows[0];
+
+  if (row === undefined) {
+    throw new Error(`Заказ ${extId} не найден в базе`);
+  }
+
+  return row;
+}
+
 async function createOrder(): Promise<string> {
   const { body } = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
 
@@ -124,6 +147,12 @@ afterAll(async () => {
 beforeEach(async () => {
   await resetDatabase(harness.dataSource);
   await seedCatalog(harness.dataSource);
+});
+
+// vitest.config.mts не включает restoreMocks, а патч JsonLogger.prototype.write снимается в
+// середине теста: упавший assert до mockRestore() оставил бы логгер подменённым до конца файла
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('POST /webhooks/payment', () => {
@@ -245,6 +274,91 @@ describe('POST /webhooks/payment', () => {
     expect(order.failure_reason).toBe(PAYMENT_FAILED_REASON);
     expect(await scalarOf(COUNT_JOBS_SQL)).toBe(0);
     expect(await scalarOf(COUNT_LEDGER_TXNS_SQL)).toBe(0);
+  });
+
+  // M2: failed(T1) → paid(T2) — реальная вторая попытка списания. Раньше это был conflict:
+  // заказ навсегда payment_failed, проводки payment_captured нет, доставка не поставлена,
+  // а продюсера ADMIN_FORCE_PAID в системе не существует
+  it('applies a paid event that follows a failed one and enqueues delivery', async () => {
+    const extId = await createOrder();
+    const failedAt = new Date(Date.now() - 60000).toISOString();
+    // единственный переход, уводящий заказ из статуса, который задание считает финальным,
+    // обязан быть виден при LOG_LEVEL=info: в payment.applied он отличается от рядового
+    // created → paid только полем from_status, поэтому у него есть ещё и отдельный warn
+    const logWrites = vi.spyOn(JsonLogger.prototype, 'write');
+
+    const failed = await post<PaymentWebhookResponseDto>(
+      '/webhooks/payment',
+      webhookPayload({ event_id: 'evt_retry_failed', order_id: extId, status: 'failed', created_at: failedAt }),
+    );
+
+    expect(failed.body.order_status).toBe('payment_failed');
+
+    const paid = await post<PaymentWebhookResponseDto>(
+      '/webhooks/payment',
+      webhookPayload({ event_id: 'evt_retry_paid', order_id: extId, created_at: new Date().toISOString() }),
+    );
+
+    expect(paid.status).toBe(200);
+    expect(paid.body).toEqual({
+      accepted: true,
+      result: 'applied',
+      order_status: 'paid',
+      event_id: 'evt_retry_paid',
+    });
+
+    const order = await storedOrderStatus(extId);
+
+    expect(order.status).toBe('paid');
+    // причина отказа снята: failure_reason присваивается без COALESCE
+    expect(order.failure_reason).toBeNull();
+    expect(await scalarOf(COUNT_JOBS_SQL)).toBe(1);
+    expect(await scalarOf(COUNT_LEDGER_TXNS_SQL)).toBe(1);
+
+    const records = logWrites.mock.calls.map(([record]) => record);
+
+    logWrites.mockRestore();
+
+    const escaped = records.filter((record) => record.event === LOG_EVENT.PAYMENT_FAILED_ESCAPED);
+
+    expect(escaped).toHaveLength(1);
+    expect(escaped[0].level).toBe('warn');
+    expect(escaped[0].data).toMatchObject({
+      order_id: extId,
+      event_id: 'evt_retry_paid',
+      from_status: 'payment_failed',
+      to_status: 'paid',
+    });
+
+    const applied = records.filter(
+      (record) => record.event === LOG_EVENT.PAYMENT_APPLIED && record.data?.event_id === 'evt_retry_paid',
+    );
+
+    expect(applied).toHaveLength(1);
+    expect(applied[0].data).toMatchObject({ from_status: 'payment_failed' });
+  });
+
+  // M1: paid_at — серверные часы, время платёжной системы остаётся в last_payment_event_at.
+  // Иначе перекошенный created_at уводит метку в 1970/будущее, и сверка «оплачен, но не выдан»
+  // по давности (idx_orders_paid_undelivered построен на paid_at) молча теряет заказ
+  it('stamps paid_at with server time while keeping the provider timestamp separately', async () => {
+    const extId = await createOrder();
+    const providerTime = '2001-02-03T04:05:06.000Z';
+    const before = Date.now();
+
+    await post<PaymentWebhookResponseDto>(
+      '/webhooks/payment',
+      webhookPayload({ event_id: 'evt_clock_1', order_id: extId, created_at: providerTime }),
+    );
+
+    const stamps = await storedOrderStamps(extId);
+
+    expect(stamps.last_payment_event_at?.getTime()).toBe(Date.parse(providerTime));
+    expect(stamps.paid_at).not.toBeNull();
+    // границы с двух сторон: односторонняя проверка пропускала регрессию, уводящую метку
+    // в будущее (ровно то, из-за чего paid_at и перевели на серверные часы)
+    expect((stamps.paid_at as Date).getTime()).toBeGreaterThan(before - CLOCK_SKEW_MS);
+    expect((stamps.paid_at as Date).getTime()).toBeLessThanOrEqual(Date.now() + CLOCK_SKEW_MS);
   });
 
   it('rejects a payment whose amount does not match the order', async () => {

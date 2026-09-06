@@ -8,7 +8,7 @@
 created | paid | delivering | delivered | payment_failed | out_of_stock | delivery_failed
 ```
 
-- **Terminal:** `delivered`, `payment_failed`.
+- **Terminal:** `delivered` only. Terminal means the row will never change again, and that is exactly what `GET /orders/:id` reports as `terminal: true`. `payment_failed` was originally listed here (the assignment calls it final), but §5.3 now applies a genuinely newer provider `paid` from it — so a client that saw `terminal: true`, stopped polling and never learned the order was delivered would have been misled by our own flag. It is therefore **neither terminal nor recoverable**: it makes no automatic progress, and only an external stimulus (a later provider `paid`, or the admin hatch) moves it.
 - **Recoverable (non-terminal, no automatic progress without an external stimulus):** `out_of_stock`, `delivery_failed`.
 - **In-flight:** `created`, `paid`, `delivering`.
 
@@ -27,7 +27,7 @@ PAYMENT_PAID | PAYMENT_FAILED | DELIVERY_STARTED | DELIVERY_SUCCEEDED
 | from | event | to | kind | notes |
 |---|---|---|---|---|
 | `created` | `PAYMENT_PAID` | `paid` | apply | sets `paid_at`; posts `payment_captured`; enqueues `deliver_order` |
-| `created` | `PAYMENT_FAILED` | `payment_failed` | apply | terminal, no ledger entries |
+| `created` | `PAYMENT_FAILED` | `payment_failed` | apply | no ledger entries; not terminal — a newer provider `paid` still applies (§5.3) |
 | `created` | `DELIVERY_*` | — | illegal | delivery cannot start before payment |
 | `paid` | `PAYMENT_PAID` | — | noop | duplicate/secondary paid event |
 | `paid` | `PAYMENT_FAILED` | — | conflict | `payment_events.state='conflict'`, ERROR log, reconciliation report |
@@ -43,9 +43,9 @@ PAYMENT_PAID | PAYMENT_FAILED | DELIVERY_STARTED | DELIVERY_SUCCEEDED
 | `delivered` | `PAYMENT_PAID` | — | noop | criterion 1/2 |
 | `delivered` | `PAYMENT_FAILED` | — | conflict | goods already handed over |
 | `delivered` | `DELIVERY_*` | — | noop | criterion 4/5 idempotency |
-| `payment_failed` | `PAYMENT_PAID` | — | conflict | terminal by spec; needs `ADMIN_FORCE_PAID` |
+| `payment_failed` | `PAYMENT_PAID` | `paid` | apply | **revised, see §5.3**: a genuinely newer `paid` is a second capture attempt that succeeded |
 | `payment_failed` | `PAYMENT_FAILED` | — | noop | |
-| `payment_failed` | `ADMIN_FORCE_PAID` | `paid` | apply | the only escape hatch, admin-guarded, WARN-logged |
+| `payment_failed` | `ADMIN_FORCE_PAID` | `paid` | apply | the manual escape hatch, admin-guarded, WARN-logged |
 | `payment_failed` | `DELIVERY_*` | — | illegal | |
 | `out_of_stock` | `RETRY_DELIVERY` / `ADMIN_REDELIVER` | `delivering` | apply | `delivery_generation += 1` |
 | `out_of_stock` | `PAYMENT_PAID` | — | noop | |

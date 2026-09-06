@@ -25,7 +25,6 @@ export function resolveListFilter(query: ListCatalogQueryDto, config: ICatalogCo
     type: query.type ?? null,
     inStockOnly: parseBooleanFlag(query.in_stock, CATALOG_IN_STOCK_DEFAULT),
     skuPrefix: query.q === undefined ? null : escapeLikePrefix(query.q),
-    after: null,
     limit: Math.min(query.limit ?? config.defaultLimit, config.maxLimit),
   };
 }

@@ -18,6 +18,7 @@ import {
   ORDER_PRODUCT_SNAPSHOT_SQL,
   ORDER_SELECT_BY_EXT_ID_SQL,
   ORDER_TRANSACTION_REQUIRED_MESSAGE,
+  ORDER_TRANSITION_LOST_MESSAGE,
   ORDER_TRANSITION_SQL,
 } from './orders.constants';
 import type {
@@ -88,7 +89,29 @@ export class OrdersRepository {
     return rows[0] ?? null;
   }
 
+  // бросает при проигранном CAS. Вызывающий, у которого 0 строк — законный исход (платёжный
+  // путь, admin, батч свипера), обязан взять tryTransition и обработать null сам
   async transition(
+    qr: QueryRunner,
+    orderId: number,
+    from: OrderStatus,
+    to: OrderStatus,
+    patch: IOrderMutablePatch,
+  ): Promise<IOrderRow> {
+    const updated = await this.tryTransition(qr, orderId, from, to, patch);
+
+    if (updated === null) {
+      throw new DomainError(ERROR_CODE.INTERNAL_ERROR, ORDER_TRANSITION_LOST_MESSAGE, {
+        order_id: orderId,
+        from,
+        to,
+      });
+    }
+
+    return updated;
+  }
+
+  async tryTransition(
     qr: QueryRunner,
     orderId: number,
     from: OrderStatus,
@@ -104,7 +127,7 @@ export class OrdersRepository {
         orderId,
         from,
         to,
-        patch.paidAt ?? null,
+        patch.markPaid ?? false,
         patch.deliveringAt ?? null,
         patch.deliveredAt ?? null,
         patch.failureReason ?? null,
@@ -118,8 +141,16 @@ export class OrdersRepository {
     return rows[0] ?? null;
   }
 
-  async findDelivery(orderId: number): Promise<IIssuedDeliveryRow | null> {
-    const rows = await this.run<IIssuedDeliveryRow>(ORDER_DELIVERY_SQL, [orderId]);
+  // qr обязателен для гарда «уже выдано»: без него чтение уходит на второе соединение пула,
+  // то есть вне транзакции, которая держит FOR UPDATE по строке заказа (и рискует
+  // self-deadlock'ом при исчерпанном пуле). Публичное чтение заказа передаёт qr=undefined
+  // осознанно — там транзакции нет вообще.
+  async findDelivery(orderId: number, qr?: QueryRunner): Promise<IIssuedDeliveryRow | null> {
+    if (qr !== undefined) {
+      this.assertTransaction(qr);
+    }
+
+    const rows = await this.run<IIssuedDeliveryRow>(ORDER_DELIVERY_SQL, [orderId], qr);
 
     return rows[0] ?? null;
   }

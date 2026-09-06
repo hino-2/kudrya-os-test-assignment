@@ -52,11 +52,13 @@ The distinction between `server_error` (structured error body ⇒ definitively n
 
 | Level | Where | Attempts | Backoff |
 |---|---|---|---|
-| In-job, same supplier, *new* `attempt_no` | `SupplierFulfilmentService` | `SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER` = **2** | `nextDelayMs(n, 200, 2000)` |
+| Same supplier, *new* `attempt_no` | `SupplierFulfilmentService` | `SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER` = **2** | `nextDelayMs(n, 200, 2000)`, **waited by the queue** (`run_at`), not in-job |
 | In-job, same supplier, **same** `attempt_no` and `request_id` (unknown resolution) | `AttemptResolverService` | `SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS` = **5** | `nextDelayMs(n, 500, 30000)`, persisted in `next_resolve_at` |
 | Job level (whole delivery re-run) | `JobQueueService` | `jobs.max_attempts` = **8** | `nextDelayMs(attempts, 500, 30000)`, persisted in `run_at` |
 
 The job is bounded by `SUPPLIER_JOB_BUDGET_MS` (10 000): once elapsed, the handler stops issuing new calls, persists everything, and reschedules the job. This keeps one poisoned order from monopolising a worker slot.
+
+The same-supplier retry does **not** sleep inside the handler. A blocking `sleep()` there held the process's single worker for up to `SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER × SUPPLIER_RETRY_MAX_MS` while the rest of the claimed batch (`JOB_BATCH_SIZE`) sat with `locked_at` already stamped — the queue's `run_at` exists to wait for exactly this, so `http_5xx` returns `retry_required` and the job is rescheduled instead. The fallback chain is unchanged (a *definitive* non-5xx outcome still moves to the next supplier within the same claim); the cost is that each 5xx retry now spends one job attempt out of `jobs.max_attempts`, which is why that budget is written per row at enqueue time rather than inherited from the DDL default.
 
 **Backoff formula** (`suppliers/backoff.util.ts`, unit-tested):
 

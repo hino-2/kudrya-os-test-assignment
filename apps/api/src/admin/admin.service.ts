@@ -103,7 +103,9 @@ export class AdminService {
         throw new DomainError(ERROR_CODE.ORDER_NOT_FOUND);
       }
 
-      const delivery = await this.orders.findDelivery(order.id);
+      // qr обязателен: гард «уже выдано» должен читаться той же транзакцией, что держит
+      // FOR UPDATE по строке заказа, а не вторым соединением пула
+      const delivery = await this.orders.findDelivery(order.id, qr);
 
       if (delivery !== null) {
         throw new DomainError(ERROR_CODE.ORDER_ALREADY_DELIVERED);
@@ -119,7 +121,9 @@ export class AdminService {
         throw new DomainError(ERROR_CODE.ORDER_NOT_RECOVERABLE);
       }
 
-      const updated = await this.orders.transition(qr, order.id, order.status, rule.to, {
+      // tryTransition, а не transition: 0 строк здесь означает, что заказ уже увели из
+      // восстановимого статуса, — это домен, а не внутренняя ошибка
+      const updated = await this.orders.tryTransition(qr, order.id, order.status, rule.to, {
         deliveryGeneration: order.delivery_generation + 1,
       });
 
@@ -133,7 +137,10 @@ export class AdminService {
         generation: updated.delivery_generation,
       } satisfies IDeliverOrderPayload;
 
-      await this.jobQueue.enqueue(qr, {
+      // null означает, что ON CONFLICT DO NOTHING отбросил вставку: живая джоба по этому
+      // заказу уже есть, но она несёт прежнее поколение и скипнется на проверке. Поколение
+      // при этом уже забампилось, поэтому отвечаем 202 с enqueued=false, а не молчаливым true
+      const jobId = await this.jobQueue.enqueue(qr, {
         kind: JOB_KIND.DELIVER_ORDER,
         dedupeKey: buildDeliverOrderDedupeKey(updated.ext_id),
         payload,
@@ -141,16 +148,17 @@ export class AdminService {
         traceId: null,
       });
 
-      return { generation: updated.delivery_generation };
+      return { generation: updated.delivery_generation, enqueued: jobId !== null };
     });
 
     this.logger.event(LOG_EVENT.ADMIN_REDELIVER, {
       order_id: input.orderId,
       generation: result.generation,
+      enqueued: result.enqueued,
       reason: input.reason ?? null,
     });
 
-    return { enqueued: true, generation: result.generation };
+    return { enqueued: result.enqueued, generation: result.generation };
   }
 
   private generatePoolCodes(count: number): string[] {

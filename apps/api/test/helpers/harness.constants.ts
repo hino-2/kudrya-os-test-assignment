@@ -86,7 +86,11 @@ export const DEFAULT_TEST_ENV: Readonly<Record<string, string>> = {
   DB_STATEMENT_TIMEOUT_MS: '10000',
   DB_LOCK_TIMEOUT_MS: '5000',
   DB_TX_RETRY_ATTEMPTS: '3',
-  // supplier-delivery.worker.spec ждёт ровно 4 попытки (2 поставщика × 2 попытки) в одной claim
+  // supplier-delivery.worker.spec ждёт ровно 4 попытки к поставщикам (2 поставщика × 2 попытки)
+  // на один заказ. С M7 ожидание между повторами отдано очереди, поэтому каждая http_5xx-попытка
+  // стоит отдельного прогона джобы, и пара обязана удовлетворять cross-rule из config.constants:
+  // JOB_MAX_ATTEMPTS >= 2 × SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER + 1 (здесь 8 >= 5) — иначе
+  // валидация окружения не даст приложению подняться, а фолбэк A→B не успел бы дойти до B
   SUPPLIER_MAX_ATTEMPTS_PER_SUPPLIER: '2',
   SUPPLIER_UNKNOWN_MAX_RESOLVE_ATTEMPTS: '5',
   SUPPLIER_RETRY_BASE_MS: '200',

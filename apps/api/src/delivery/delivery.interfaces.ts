@@ -149,9 +149,10 @@ export interface ISettleStepRetryRequired {
   message: string;
 }
 
+// следующая итерация цикла fulfil() идёт сразу: ожидание между попытками к одному поставщику
+// теперь планирует очередь (run_at джобы), а не блокирующий sleep внутри воркера
 export interface ISettleStepContinue {
   kind: 'continue';
-  sleepMs: number | null;
 }
 
 export interface IStaleInflightAttemptRow {

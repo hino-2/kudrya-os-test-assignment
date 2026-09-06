@@ -12,6 +12,12 @@ export const RESTOCK_COUNT_MIN = 1;
 
 export const RESTOCK_COUNT_MAX = 10000;
 
+export const RESTOCK_CODE_MAX_LENGTH = 128;
+
+// коды пула: и сидовые ('LFXC-TNCS-BPCD'), и генерируемые randomUUID укладываются в этот класс.
+// Без него в stock_keys.code попадал любой блоб, ограниченный только лимитом тела express
+export const RESTOCK_CODE_REGEX = /^[A-Za-z0-9._-]+$/;
+
 export const REDELIVER_REASON_MAX_LENGTH = 500;
 
 export const ADMIN_SWEEPER_RUN_STATUS = 200;

@@ -5,7 +5,6 @@ import type { ICatalogRow } from '../../src/catalog/catalog.interfaces';
 
 function row(overrides: Partial<ICatalogRow> = {}): ICatalogRow {
   return {
-    id: 5,
     sku: 'KEY-GTA5',
     name: 'GTA V ключ активации',
     type: 'key',
@@ -44,16 +43,16 @@ describe('catalog.mapper', () => {
 
   describe('toCatalogPage', () => {
     it('maps every row and echoes the effective limit', () => {
-      const page = toCatalogPage({ rows: [row(), row({ sku: 'KEY-EFT' })], hasMore: true }, 5);
+      const page = toCatalogPage([row(), row({ sku: 'KEY-EFT' })], 5);
 
       expect(page.items).toHaveLength(2);
       expect(page.items[1].sku).toBe('KEY-EFT');
-      expect(page.has_more).toBe(true);
       expect(page.limit).toBe(5);
     });
 
-    it('reports no cursor until keyset pagination exists', () => {
-      expect(toCatalogPage({ rows: [], hasMore: false }, 24).next_cursor).toBeNull();
+    // M11: полей курсора в контракте больше нет — одна страница, keyset это этап 5
+    it('exposes items and limit only', () => {
+      expect(Object.keys(toCatalogPage([], 24)).sort()).toEqual(['items', 'limit']);
     });
   });
 });

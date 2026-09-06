@@ -69,7 +69,9 @@ describe('orders.mapper', () => {
       const body = toOrderResponse(detail({ order: row({ status }) }));
 
       expect(body.recoverable).toBe(status === 'out_of_stock' || status === 'delivery_failed');
-      expect(body.terminal).toBe(status === 'delivered' || status === 'payment_failed');
+      // payment_failed не терминален: вторая попытка списания легально ведёт его в paid и дальше
+      // в delivered, а клиент, увидевший terminal=true, перестал бы опрашивать заказ
+      expect(body.terminal).toBe(status === 'delivered');
     });
 
     it('keeps null timestamps null', () => {

@@ -37,6 +37,10 @@ export interface IPaymentEventFinalisation {
 export interface IWebhookOutcome {
   result: WebhookResult;
   orderStatus: OrderStatus | null;
+  // статус ДО применения правила: без него payment.applied по второй попытке списания
+  // (payment_failed → paid) не отличить от рядового created → paid. null у исходов,
+  // где заказа нет (duplicate/orphan)
+  fromStatus: OrderStatus | null;
   eventId: string;
   paymentEventId: number | null;
   jobId: number | null;

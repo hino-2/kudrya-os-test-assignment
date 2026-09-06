@@ -71,8 +71,14 @@ describe('catalog.util', () => {
       expect(resolveListFilter({}, config).skuPrefix).toBeNull();
     });
 
-    it('never produces a cursor position before keyset pagination exists', () => {
-      expect(resolveListFilter({ limit: 5, q: 'KEY' }, config).after).toBeNull();
+    // M11: у фильтра нет позиции курсора — она была захардкожена в null и никуда не доезжала
+    it('exposes exactly the fields the single-page query consumes', () => {
+      expect(Object.keys(resolveListFilter({ limit: 5, q: 'KEY' }, config)).sort()).toEqual([
+        'inStockOnly',
+        'limit',
+        'skuPrefix',
+        'type',
+      ]);
     });
   });
 });

@@ -6,6 +6,9 @@ export interface IEnqueueJobInput {
   payload: JobPayload;
   runAt: Date;
   traceId: string | null;
+  // по умолчанию config.jobs.maxAttempts (JOB_MAX_ATTEMPTS); переопределяется точечно,
+  // чтобы урезать бюджет ретраев в тестах
+  maxAttempts?: number;
 }
 
 export interface IJobIdRow {

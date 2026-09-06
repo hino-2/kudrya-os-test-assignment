@@ -1,6 +1,8 @@
 import type { QueryRunner } from 'typeorm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { DomainError } from '../../src/common/errors/domain.error';
+import { ERROR_CODE } from '../../src/common/errors/errors.constants';
 import type { IErrorEnvelope } from '../../src/common/errors/errors.interfaces';
 import { ORDER_TRANSITION_SQL } from '../../src/orders/orders.constants';
 import type { IOrderRow } from '../../src/orders/orders.interfaces';
@@ -34,6 +36,9 @@ const FIRST_EXT_ID = 'ord_00100';
 const SECOND_EXT_ID = 'ord_00101';
 
 const LOCK_PROBE_MS = 150;
+
+// запас на расхождение часов процесса и Postgres при сверке серверной метки paid_at
+const PAID_AT_CLOCK_SKEW_MS = 60000;
 
 const PENDING = Symbol('pending');
 
@@ -447,16 +452,13 @@ describe('OrdersRepository single-writer primitives', () => {
     const repository = harness.get(OrdersRepository);
     const created = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
     const before = await storedOrder(created.body.order_id);
-    const paidAt = new Date();
     const runner = harness.dataSource.createQueryRunner();
 
     try {
       await runner.connect();
       await runner.startTransaction();
 
-      const updated = requireOrder(
-        await repository.transition(runner, before.id, 'created', 'paid', { paidAt }),
-      );
+      const updated = await repository.transition(runner, before.id, 'created', 'paid', { markPaid: true });
 
       expect(updated.status).toBe('paid');
       expect(updated.paid_at).not.toBeNull();
@@ -477,7 +479,7 @@ describe('OrdersRepository single-writer primitives', () => {
       await runner.connect();
       await runner.startTransaction();
 
-      const lost = await repository.transition(runner, before.id, 'paid', 'delivering', {});
+      const lost = await repository.tryTransition(runner, before.id, 'paid', 'delivering', {});
 
       expect(lost).toBeNull();
       await runner.commitTransaction();
@@ -491,6 +493,71 @@ describe('OrdersRepository single-writer primitives', () => {
     expect(after.updated_at.getTime()).toBe(before.updated_at.getTime());
   });
 
+  // M5: пути доставки держат строку заказа FOR UPDATE и читают status уже под блокировкой,
+  // поэтому проигранный CAS для них — сломанный инвариант, а не no-op. Молчаливое ноль-строк
+  // означало бы выданный заказ с отставшим status, который свипер пере-ставит в очередь
+  it('throws on a lost CAS through the strict transition wrapper', async () => {
+    const repository = harness.get(OrdersRepository);
+    const created = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
+    const before = await storedOrder(created.body.order_id);
+    const runner = harness.dataSource.createQueryRunner();
+    let caught: unknown = null;
+
+    try {
+      await runner.connect();
+      await runner.startTransaction();
+
+      try {
+        await repository.transition(runner, before.id, 'paid', 'delivering', {});
+      } catch (error) {
+        caught = error;
+      }
+
+      await runner.commitTransaction();
+    } finally {
+      await closeRunner(runner);
+    }
+
+    expect(DomainError.isDomainError(caught)).toBe(true);
+    expect((caught as DomainError).code).toBe(ERROR_CODE.INTERNAL_ERROR);
+    expect((caught as DomainError).details).toEqual({ order_id: before.id, from: 'paid', to: 'delivering' });
+
+    const after = await storedOrder(created.body.order_id);
+
+    expect(after.status).toBe('created');
+  });
+
+  // M1: paid_at — серверные часы. Время платёжной системы уезжает в last_payment_event_at,
+  // иначе перекошенный created_at уводил метку в будущее или в 1970, а сверка «оплачен, но не
+  // выдан» по давности (idx_orders_paid_undelivered построен на paid_at) молча теряла заказ
+  it('stamps paid_at from the database clock, not from the payment provider', async () => {
+    const repository = harness.get(OrdersRepository);
+    const created = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
+    const before = await storedOrder(created.body.order_id);
+    const providerTime = new Date('2001-02-03T04:05:06.000Z');
+    const runner = harness.dataSource.createQueryRunner();
+    const startedAt = Date.now();
+
+    try {
+      await runner.connect();
+      await runner.startTransaction();
+
+      const updated = await repository.transition(runner, before.id, 'created', 'paid', {
+        markPaid: true,
+        lastPaymentEventAt: providerTime,
+      });
+
+      expect(updated.last_payment_event_at?.getTime()).toBe(providerTime.getTime());
+      // границы с двух сторон: односторонняя проверка пропускала регрессию, уводящую метку
+      // в будущее (ровно то, из-за чего paid_at и перевели на серверные часы)
+      expect(updated.paid_at?.getTime()).toBeGreaterThanOrEqual(startedAt - PAID_AT_CLOCK_SKEW_MS);
+      expect(updated.paid_at?.getTime()).toBeLessThanOrEqual(Date.now() + PAID_AT_CLOCK_SKEW_MS);
+      await runner.commitTransaction();
+    } finally {
+      await closeRunner(runner);
+    }
+  });
+
   it('keeps COALESCEd stamps but clears an omitted failure_reason', async () => {
     const repository = harness.get(OrdersRepository);
     const created = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
@@ -501,26 +568,18 @@ describe('OrdersRepository single-writer primitives', () => {
       await runner.connect();
       await runner.startTransaction();
 
-      const paid = requireOrder(
-        await repository.transition(runner, before.id, 'created', 'paid', { paidAt: new Date() }),
-      );
-      const delivering = requireOrder(
-        await repository.transition(runner, before.id, 'paid', 'delivering', {}),
-      );
+      const paid = await repository.transition(runner, before.id, 'created', 'paid', { markPaid: true });
+      const delivering = await repository.transition(runner, before.id, 'paid', 'delivering', {});
 
       expect(delivering.paid_at?.getTime()).toBe(paid.paid_at?.getTime());
 
-      const failed = requireOrder(
-        await repository.transition(runner, before.id, 'delivering', 'delivery_failed', {
-          failureReason: 'supplier timeout',
-        }),
-      );
+      const failed = await repository.transition(runner, before.id, 'delivering', 'delivery_failed', {
+        failureReason: 'supplier timeout',
+      });
 
       expect(failed.failure_reason).toBe('supplier timeout');
 
-      const retried = requireOrder(
-        await repository.transition(runner, before.id, 'delivery_failed', 'delivering', {}),
-      );
+      const retried = await repository.transition(runner, before.id, 'delivery_failed', 'delivering', {});
 
       expect(retried.failure_reason).toBeNull();
       expect(retried.paid_at?.getTime()).toBe(paid.paid_at?.getTime());
@@ -528,6 +587,32 @@ describe('OrdersRepository single-writer primitives', () => {
     } finally {
       await closeRunner(runner);
     }
+  });
+
+  // M9: гард «уже выдано» в admin redeliver читался вторым соединением пула, то есть вне
+  // транзакции, которая держит FOR UPDATE по заказу. Runner без активной транзакции обязан
+  // падать здесь, а не молча читать снапшот чужого соединения
+  it('refuses to read the issued delivery on a runner without an active transaction', async () => {
+    const repository = harness.get(OrdersRepository);
+    const created = await post<CreateOrderResponseDto>('/orders', { sku: TOPUP_SKU });
+    const order = await storedOrder(created.body.order_id);
+    const runner = harness.dataSource.createQueryRunner();
+    let caught: unknown = null;
+
+    try {
+      await runner.connect();
+
+      try {
+        await repository.findDelivery(order.id, runner);
+      } catch (error) {
+        caught = error;
+      }
+    } finally {
+      await closeRunner(runner);
+    }
+
+    expect(DomainError.isDomainError(caught)).toBe(true);
+    expect((caught as DomainError).code).toBe(ERROR_CODE.INTERNAL_ERROR);
   });
 
   it('returns null when locking an unknown ext_id', async () => {
@@ -559,7 +644,7 @@ describe('OrdersRepository single-writer primitives', () => {
       const lockedA = requireOrder(await repository.lockForUpdate(runnerA, extId));
 
       expect(lockedA.status).toBe('created');
-      await repository.transition(runnerA, lockedA.id, 'created', 'paid', { paidAt: new Date() });
+      await repository.transition(runnerA, lockedA.id, 'created', 'paid', { markPaid: true });
 
       await runnerB.connect();
       await runnerB.startTransaction();

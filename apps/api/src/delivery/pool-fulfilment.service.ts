@@ -62,6 +62,10 @@ export class PoolFulfilmentService implements IFulfilmentService {
 
     // логируем только на переходе paid → delivering (как supplier-путь), а не на каждом
     // повторном прогоне уже delivering-заказа
+    // transition (бросающий), а не tryTransition: строка заказа держится
+    // LOCK_ORDER_FOR_DELIVERY_SQL … FOR UPDATE, а status прочитан ПОСЛЕ блокировки, поэтому
+    // 0 строк здесь — сломанный инвариант с худшим режимом отказа: issued_deliveries записан,
+    // orders.status отстал, и свипер пере-ставит уже выданный заказ в очередь
     if (order.status === ORDER_STATUS.PAID) {
       this.logger.event(LOG_EVENT.DELIVERY_STARTED, { order_id: order.id, generation: order.generation });
       await this.ordersRepository.transition(qr, order.id, ORDER_STATUS.PAID, ORDER_STATUS.DELIVERING, {});

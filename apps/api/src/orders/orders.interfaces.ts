@@ -36,7 +36,9 @@ export interface IOrderRow {
 }
 
 export interface IOrderMutablePatch {
-  paidAt?: Date | null;
+  // отметка оплаты ставится серверными часами внутри ORDER_TRANSITION_SQL, поэтому флаг,
+  // а не дата: время платёжной системы живёт в lastPaymentEventAt
+  markPaid?: boolean;
   deliveringAt?: Date | null;
   deliveredAt?: Date | null;
   failureReason?: string | null;

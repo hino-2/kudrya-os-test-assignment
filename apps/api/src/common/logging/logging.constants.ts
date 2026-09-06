@@ -47,6 +47,7 @@ export const LOG_EVENT = {
   ORDER_CREATED: 'order.created',
   PAYMENT_RECEIVED: 'payment.received',
   PAYMENT_APPLIED: 'payment.applied',
+  PAYMENT_FAILED_ESCAPED: 'payment.failed_escaped',
   DELIVERY_ENQUEUED: 'delivery.enqueued',
   DELIVERY_STARTED: 'delivery.started',
   DELIVERY_ATTEMPT_CREATED: 'delivery.attempt.created',
@@ -69,6 +70,8 @@ export const LOG_EVENT = {
   DELIVERY_ATTEMPT_UNKNOWN: 'delivery.attempt.unknown',
   DELIVERY_ATTEMPT_RESOLVING: 'delivery.attempt.resolving',
   DELIVERY_ATTEMPT_RESOLVED: 'delivery.attempt.resolved',
+  DELIVERY_ATTEMPT_CAS_LOST: 'delivery.attempt.cas_lost',
+  JOB_ENQUEUE_SKIPPED: 'job.enqueue_skipped',
   DELIVERY_FALLBACK: 'delivery.fallback',
   JOB_RETRY_SCHEDULED: 'job.retry_scheduled',
   SWEEPER_REQUEUED: 'sweeper.requeued',
@@ -126,10 +129,22 @@ export const LOG_EVENT_LEVEL: Readonly<Record<LogEventName, LogLevel>> = {
   [LOG_EVENT.PAYMENT_ORPHAN]: 'warn',
   [LOG_EVENT.PAYMENT_IGNORED_STALE]: 'warn',
   [LOG_EVENT.PAYMENT_IGNORED_TERMINAL]: 'warn',
+  // единственный переход, уводящий заказ из статуса, который задание считает финальным:
+  // payment_failed → paid по второй попытке списания. От рядового created → paid он отличается
+  // только from_status, поэтому при LOG_LEVEL=info в payment.applied он неотличим — отдельное
+  // событие уровня warn существует ровно для того, чтобы его можно было найти в логах
+  [LOG_EVENT.PAYMENT_FAILED_ESCAPED]: 'warn',
   [LOG_EVENT.DELIVERY_ATTEMPT_TIMEOUT]: 'warn',
   [LOG_EVENT.DELIVERY_ATTEMPT_UNKNOWN]: 'warn',
   [LOG_EVENT.DELIVERY_ATTEMPT_RESOLVING]: 'warn',
   [LOG_EVENT.DELIVERY_ATTEMPT_RESOLVED]: 'warn',
+  // CAS попытки не нашёл строку: её увёл свипер (демоция in_flight → unknown) или второй
+  // воркер. Выдача при этом продолжается по коду, который принадлежит именно этой попытке,
+  // поэтому это не ошибка, но и не норма — расхождение обязано быть видно при LOG_LEVEL=info
+  [LOG_EVENT.DELIVERY_ATTEMPT_CAS_LOST]: 'warn',
+  // ON CONFLICT DO NOTHING отбросил вставку: живая джоба с этим dedupe_key уже есть, и она
+  // может нести устаревшее поколение — заказ подхватит только pass 2 свипера
+  [LOG_EVENT.JOB_ENQUEUE_SKIPPED]: 'warn',
   [LOG_EVENT.DELIVERY_FALLBACK]: 'warn',
   [LOG_EVENT.JOB_RETRY_SCHEDULED]: 'warn',
   [LOG_EVENT.SWEEPER_REQUEUED]: 'warn',

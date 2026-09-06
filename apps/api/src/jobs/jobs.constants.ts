@@ -14,9 +14,11 @@ export const JOB_DEDUPE_ORDER_PREFIX = 'order:';
 
 export const JOB_TRANSACTION_REQUIRED_MESSAGE = 'Постановка задачи требует открытой транзакции';
 
+// max_attempts пишется явно: без него все джобы получали DDL-дефолт, а JOB_MAX_ATTEMPTS
+// оставался мёртвой конфигурацией
 export const JOB_ENQUEUE_SQL = `
-  INSERT INTO jobs (kind, dedupe_key, payload, run_at, trace_id)
-  VALUES ($1,$2,$3,$4,$5)
+  INSERT INTO jobs (kind, dedupe_key, payload, run_at, trace_id, max_attempts)
+  VALUES ($1,$2,$3,$4,$5,$6)
   -- предикат WHERE обязателен: без него Postgres не свяжет ON CONFLICT с частичным уникальным индексом
   ON CONFLICT (kind, dedupe_key) WHERE state IN ('pending','running') DO NOTHING
   RETURNING id

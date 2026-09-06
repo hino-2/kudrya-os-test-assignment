@@ -26,6 +26,8 @@ LIMIT $6;
 
 `limit` default 24, max 100. `has_more` is computed by requesting `limit + 1` rows and trimming.
 
+This whole section is the **stage-5** design. Stages 1–3 ship the same query without the cursor clause: one page of exactly `limit` rows, no `cursor`/`next_cursor`/`has_more` in the contract (see §9.2) — the ordering and the `COLLATE "C"` are already in place, so turning the cursor on later is additive.
+
 The `(p.sku, p.id) > ($4, $5)` form is a **row-constructor** comparison, not `sku > $4 OR (sku = $4 AND id > $5)` — the former is directly index-usable as a single seek; the latter usually degenerates into a filter.
 
 **Indexes** (migration `1756600000005-StorefrontIndexes.ts`, kept in its own migration so the README can show plans with and without them):
