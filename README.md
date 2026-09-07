@@ -505,8 +505,13 @@ express.
 задачу доставки, ровно одну выдачу и сходимость книги. 5 итераций для каждого из двух режимов выдачи.
 
 ```bash
-npm run test:integration -- webhook-race
+npx vitest run --root apps/api --project integration-worker webhook-race
 ```
+
+Фильтр по имени файла нельзя передать через `npm run test:integration -- …`: этот скрипт —
+цепочка из пяти `vitest run` (§7.2), а npm приклеивает аргументы только к последней команде,
+так что фильтр ушёл бы не в тот проект. Спек живёт в проекте `integration-worker`, отсюда
+`--project`.
 
 **Вручную** — `npm run race`: создаёт (или использует существующий) заказ, переводит стенд A в
 предсказуемый сценарий `ok` на время прогона (восстанавливая `normal` после), шлёт N параллельных
@@ -694,8 +699,20 @@ npm run webhook -- --order ord_99999 --status paid --amount 500
 
 ### 7.2 Интеграционные тесты — `npm run test:integration`
 
-Нужна поднятая PostgreSQL (`TEST_DATABASE_URL` или `DATABASE_URL`). 16 файлов, пять
-Vitest-проектов, каждый — отдельный процесс, гоняются последовательно:
+Нужна поднятая PostgreSQL и **отдельная** база под тесты: харнесс изолирует прогоны через
+`TRUNCATE … RESTART IDENTITY CASCADE`, поэтому `assertTestDatabase` требует, чтобы имя базы
+содержало `test` — иначе прогон отказывается стартовать (обход — `ALLOW_DESTRUCTIVE_TESTS=1`).
+Берётся `TEST_DATABASE_URL`, при его отсутствии — `DATABASE_URL`. На compose-стенде базу нужно
+создать один раз:
+
+```bash
+docker compose exec postgres psql -U postgres -c "CREATE DATABASE store_test"
+```
+
+`.env.example` уже указывает `TEST_DATABASE_URL` на неё. Схему харнесс накатывает сам
+(`global.setup.ts` гоняет миграции), отдельный `npm run migration:run` не нужен.
+
+18 файлов, пять Vitest-проектов, каждый — отдельный процесс, гоняются последовательно:
 
 | Проект                       | Глоб файлов                | Окружение                                    |
 | ---------------------------- | -------------------------- | -------------------------------------------- |
