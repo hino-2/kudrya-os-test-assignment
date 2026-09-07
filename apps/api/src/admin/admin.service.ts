@@ -21,6 +21,7 @@ import type { ISweeperCycleResult } from '../reconciliation/sweeper.interfaces';
 import { SupplierClient } from '../suppliers/supplier.client';
 import {
   RESTOCK_BODY_INVALID_MESSAGE,
+  RESTOCK_KIND,
   RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE,
 } from './admin.constants';
 import type {
@@ -29,6 +30,7 @@ import type {
   IRestockInput,
   IRestockResult,
 } from './admin.interfaces';
+import type { RestockPlan } from './admin.type';
 
 @Injectable()
 export class AdminService {
@@ -49,12 +51,7 @@ export class AdminService {
   }
 
   async restock(input: IRestockInput): Promise<IRestockResult> {
-    const hasCodes = input.codes !== undefined;
-    const hasCount = input.count !== undefined;
-
-    if (hasCodes === hasCount) {
-      throw new DomainError(ERROR_CODE.VALIDATION_FAILED, RESTOCK_BODY_INVALID_MESSAGE);
-    }
+    const plan = this.toRestockPlan(input);
 
     let supplierRestockCount: number | null = null;
 
@@ -66,26 +63,23 @@ export class AdminService {
       }
 
       if (product.fulfillment_mode === FULFILLMENT_MODE.SUPPLIER) {
-        if (hasCodes) {
+        if (plan.kind === RESTOCK_KIND.CODES) {
           throw new DomainError(
             ERROR_CODE.VALIDATION_FAILED,
             RESTOCK_SUPPLIER_CODES_UNSUPPORTED_MESSAGE,
           );
         }
 
-        // count проверен выше через hasCount === !hasCodes
-        const count = input.count as number;
-        const availableCount = await this.inventory.bumpAvailableCount(qr, product.id, count);
+        const availableCount = await this.inventory.bumpAvailableCount(qr, product.id, plan.count);
 
         await this.inventory.syncProductInStock(qr, product.id);
-        supplierRestockCount = count;
+        supplierRestockCount = plan.count;
 
-        return { added: count, availableCount };
+        return { added: plan.count, availableCount };
       }
 
-      const codes = hasCodes
-        ? (input.codes as string[])
-        : this.generatePoolCodes(input.count as number);
+      const codes =
+        plan.kind === RESTOCK_KIND.CODES ? plan.codes : this.generatePoolCodes(plan.count);
       const insertedCount = await this.inventory.insertRestockKeys(
         qr,
         product.id,
@@ -105,11 +99,13 @@ export class AdminService {
         ? null
         : await this.supplierClient.restock(supplierRestockCount);
 
+    const failedRestockCount = supplierRestock?.filter((outcome) => !outcome.ok).length ?? 0;
+
     this.logger.event(LOG_EVENT.ADMIN_RESTOCK, {
       sku: input.sku,
       added: result.added,
       available_count: result.availableCount,
-      supplier_restock_failed: supplierRestock?.filter((outcome) => !outcome.ok).length ?? 0,
+      supplier_restock_failed: failedRestockCount,
     });
 
     return { added: result.added, availableCount: result.availableCount, supplierRestock };
@@ -117,7 +113,7 @@ export class AdminService {
 
   async redeliver(input: IRedeliverInput): Promise<IRedeliverResult> {
     const result = await this.unitOfWork.withTransaction(async (qr) => {
-      const order = await this.orders.lockForUpdate(qr, input.orderId);
+      const order = await this.orders.lockForUpdate(qr, input.orderExtId);
 
       if (order === null) {
         throw new DomainError(ERROR_CODE.ORDER_NOT_FOUND);
@@ -172,7 +168,7 @@ export class AdminService {
     });
 
     this.logger.event(LOG_EVENT.ADMIN_REDELIVER, {
-      order_id: input.orderId,
+      order_id: input.orderExtId,
       generation: result.generation,
       enqueued: result.enqueued,
       reason: input.reason ?? null,
@@ -183,5 +179,17 @@ export class AdminService {
 
   private generatePoolCodes(count: number): string[] {
     return Array.from({ length: count }, () => randomUUID());
+  }
+
+  private toRestockPlan(input: IRestockInput): RestockPlan {
+    if (input.codes !== undefined && input.count === undefined) {
+      return { kind: RESTOCK_KIND.CODES, codes: input.codes };
+    }
+
+    if (input.count !== undefined && input.codes === undefined) {
+      return { kind: RESTOCK_KIND.COUNT, count: input.count };
+    }
+
+    throw new DomainError(ERROR_CODE.VALIDATION_FAILED, RESTOCK_BODY_INVALID_MESSAGE);
   }
 }

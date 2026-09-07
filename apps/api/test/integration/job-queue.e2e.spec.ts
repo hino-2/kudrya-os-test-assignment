@@ -38,11 +38,18 @@ const MARK_STALE_RUNNING_SQL = `
 `;
 
 let harness: IApiHarness;
+let nextSuffix = 0;
+
+function uniqueId(): string {
+  nextSuffix += 1;
+
+  return `${Date.now()}-${nextSuffix}`;
+}
 
 function buildEnqueueInput(overrides: Partial<IEnqueueJobInput>): IEnqueueJobInput {
   return {
     kind: JOB_KIND.DELIVER_ORDER,
-    dedupeKey: `job-queue-spec:${Math.random()}`,
+    dedupeKey: `job-queue-spec:${uniqueId()}`,
     payload: { orderId: 1, ext_id: 'ord_1', generation: 1 },
     runAt: new Date(),
     traceId: null,
@@ -179,8 +186,8 @@ describe('job queue + worker', () => {
   // M3: JOB_ENQUEUE_SQL не писал max_attempts, поэтому все джобы получали DDL-дефолт, а
   // JOB_MAX_ATTEMPTS был мёртвой конфигурацией — бюджет ретраев не настраивался ничем
   it('writes max_attempts from the enqueue input and defaults it to the configured budget', async () => {
-    const dedupeKey = `job-queue-spec:max-attempts:${Math.random()}`;
-    const defaultKey = `job-queue-spec:max-attempts-default:${Math.random()}`;
+    const dedupeKey = `job-queue-spec:max-attempts:${uniqueId()}`;
+    const defaultKey = `job-queue-spec:max-attempts-default:${uniqueId()}`;
 
     await enqueue({ dedupeKey, maxAttempts: 2 });
     await enqueue({ dedupeKey: defaultKey });

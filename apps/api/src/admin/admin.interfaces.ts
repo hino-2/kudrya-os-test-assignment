@@ -1,9 +1,20 @@
 import type { ISupplierRestockOutcome } from '../suppliers/suppliers.interfaces';
+import type { RESTOCK_KIND } from './admin.constants';
 
 export interface IRestockInput {
   sku: string;
   codes?: string[];
   count?: number;
+}
+
+export interface IRestockCodesPlan {
+  kind: typeof RESTOCK_KIND.CODES;
+  codes: string[];
+}
+
+export interface IRestockCountPlan {
+  kind: typeof RESTOCK_KIND.COUNT;
+  count: number;
 }
 
 export interface IRestockResult {
@@ -15,7 +26,7 @@ export interface IRestockResult {
 }
 
 export interface IRedeliverInput {
-  orderId: string;
+  orderExtId: string;
   reason?: string;
 }
 

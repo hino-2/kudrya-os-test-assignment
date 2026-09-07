@@ -79,6 +79,8 @@ describe('JobWorkerService onModuleDestroy draining an in-flight tick', () => {
   });
 
   it('does not resolve until the in-flight tick settles', async () => {
+    vi.useFakeTimers();
+
     const deferred = buildDeferredClaim();
     const service = buildService(() => deferred.promise);
 
@@ -88,8 +90,7 @@ describe('JobWorkerService onModuleDestroy draining an in-flight tick', () => {
       destroyed = true;
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(0);
     expect(destroyed).toBe(false);
 
     deferred.resolve([]);

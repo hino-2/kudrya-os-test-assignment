@@ -8,6 +8,7 @@ import { CHECK_STATUS, CHECK_VERDICT, EXIT_CODE } from './lib/lib.constants';
 import { printCheckTable } from './lib/table';
 import type { ICheckRow } from './lib/lib.interfaces';
 import {
+  ALLOWED_PAYMENT_RESULTS,
   API_BASE_URL_VAR,
   CASH_DEBIT_SUMMARY_BY_ORDER_ID_SQL,
   CONTROL_RESET_PATH,
@@ -52,6 +53,7 @@ import {
   STUB_RESTORE_FAILED_MESSAGE,
   SUM_SIGNED_MINOR_BY_ORDER_ID_SQL,
   SUPPLIER_A_BASE_URL_VAR,
+  UNEXPECTED_PAYMENT_RESULTS,
   WEBHOOK_PAYMENT_PATH,
 } from './race.constants';
 import type {
@@ -262,12 +264,7 @@ function runHttpChecks(
   );
 
   const unexpected = results.filter((result) =>
-    [
-      PAYMENT_RESULT.DUPLICATE,
-      PAYMENT_RESULT.CONFLICT,
-      PAYMENT_RESULT.REJECTED_AMOUNT,
-      PAYMENT_RESULT.ORPHAN,
-    ].includes((result.body?.result ?? '') as never),
+    (UNEXPECTED_PAYMENT_RESULTS as readonly string[]).includes(result.body?.result ?? ''),
   ).length;
 
   rows.push(
@@ -276,14 +273,10 @@ function runHttpChecks(
       : fail('no-unexpected-results', `unexpected=${unexpected}`),
   );
 
-  const otherAllowed = results.every((result) =>
-    result.body === null
-      ? false
-      : [
-          PAYMENT_RESULT.APPLIED,
-          PAYMENT_RESULT.IGNORED_STALE,
-          PAYMENT_RESULT.IGNORED_ALREADY_PAID,
-        ].includes(result.body.result as never),
+  const otherAllowed = results.every(
+    (result) =>
+      result.body !== null &&
+      (ALLOWED_PAYMENT_RESULTS as readonly string[]).includes(result.body.result),
   );
 
   rows.push(

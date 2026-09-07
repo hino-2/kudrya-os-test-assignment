@@ -1,5 +1,4 @@
 import {
-  HTTP_STATUS_CLIENT_ERROR_MIN,
   HTTP_STATUS_SERVER_ERROR_MIN,
   SUPPLIER_ERROR_KIND,
   SUPPLIER_ERROR_STATUS,
@@ -174,11 +173,8 @@ export function classifySupplierHttpStatus(
       : { kind: SUPPLIER_OUTCOME.UNKNOWN, errorKind: SUPPLIER_ERROR_KIND.HTTP_5XX, reason };
   }
 
-  if (status >= HTTP_STATUS_CLIENT_ERROR_MIN) {
-    return { kind: SUPPLIER_OUTCOME.REJECTED, errorKind: SUPPLIER_ERROR_KIND.HTTP_4XX, reason };
-  }
-
-  return { kind: SUPPLIER_OUTCOME.UNKNOWN, errorKind: SUPPLIER_ERROR_KIND.BAD_BODY, reason };
+  // вызывается только при status >= 400 (см. supplier.client.ts::classifyResponse), поэтому хвост — 4xx
+  return { kind: SUPPLIER_OUTCOME.REJECTED, errorKind: SUPPLIER_ERROR_KIND.HTTP_4XX, reason };
 }
 
 export function buildUnknownSupplierCodeMessage(code: string): string {

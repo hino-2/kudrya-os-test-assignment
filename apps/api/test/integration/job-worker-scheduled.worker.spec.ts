@@ -16,11 +16,18 @@ const POLL_STEP_MS = 25;
 const POLL_TIMEOUT_MS = 5000;
 
 let harness: IApiHarness;
+let nextSuffix = 0;
+
+function uniqueId(): string {
+  nextSuffix += 1;
+
+  return `${Date.now()}-${nextSuffix}`;
+}
 
 function buildEnqueueInput(overrides: Partial<IEnqueueJobInput>): IEnqueueJobInput {
   return {
     kind: JOB_KIND.DELIVER_ORDER,
-    dedupeKey: `job-worker-scheduled-spec:${Math.random()}`,
+    dedupeKey: `job-worker-scheduled-spec:${uniqueId()}`,
     payload: { orderId: 1, ext_id: 'ord_1', generation: 1 },
     runAt: new Date(),
     traceId: null,

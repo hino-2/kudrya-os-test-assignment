@@ -254,7 +254,7 @@ kudrya-os-test-assignment/
 ```
 "lint"                 -> eslint .
 "typecheck"            -> npm run -ws typecheck
-"build"                -> npm run -ws build
+"build"                -> npm run -w apps/api build && npm run -w apps/supplier-stub build
 "test:unit"            -> npm run -w apps/api test:unit && npm run -w apps/supplier-stub test
 "test:integration"     -> npm run -w apps/api test:integration
 "test"                 -> npm run test:unit && npm run test:integration

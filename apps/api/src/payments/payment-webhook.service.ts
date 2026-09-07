@@ -89,14 +89,7 @@ export class PaymentWebhookService {
       from_status: outcome.fromStatus,
     };
 
-    if (
-      outcome.result === WEBHOOK_RESULT.CONFLICT ||
-      outcome.result === WEBHOOK_RESULT.REJECTED_AMOUNT
-    ) {
-      this.logger.error(logEvent, undefined, logData);
-    } else {
-      this.logger.event(logEvent, logData);
-    }
+    this.logger.event(logEvent, logData);
 
     if (outcome.jobId !== null) {
       this.logger.event(LOG_EVENT.DELIVERY_ENQUEUED, {

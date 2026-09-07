@@ -72,7 +72,10 @@ export class AdminController {
     @Param() params: AdminOrderIdParamDto,
     @Body() dto: RedeliverRequestDto,
   ): Promise<RedeliverResponseDto> {
-    const result = await this.service.redeliver({ orderId: params.orderId, reason: dto.reason });
+    const result = await this.service.redeliver({
+      orderExtId: params.orderId,
+      reason: dto.reason,
+    });
 
     return { enqueued: result.enqueued, generation: result.generation };
   }

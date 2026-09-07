@@ -39,6 +39,19 @@ export const PAYMENT_RESULT = {
   REJECTED_AMOUNT: 'rejected_amount',
 } as const;
 
+export const UNEXPECTED_PAYMENT_RESULTS = [
+  PAYMENT_RESULT.DUPLICATE,
+  PAYMENT_RESULT.CONFLICT,
+  PAYMENT_RESULT.REJECTED_AMOUNT,
+  PAYMENT_RESULT.ORPHAN,
+] as const;
+
+export const ALLOWED_PAYMENT_RESULTS = [
+  PAYMENT_RESULT.APPLIED,
+  PAYMENT_RESULT.IGNORED_STALE,
+  PAYMENT_RESULT.IGNORED_ALREADY_PAID,
+] as const;
+
 export const JOB_STATE_DONE = 'done';
 
 // повторяет apps/api/src/jobs/jobs.util.ts::buildDeliverOrderDedupeKey — tools не может

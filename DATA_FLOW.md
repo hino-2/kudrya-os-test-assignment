@@ -19,7 +19,7 @@
 
 ---
 
-## **Ответвление 1: Payment Webhook** (POST /payments/webhook)
+## **Ответвление 1: Payment Webhook** (POST /webhooks/payment)
 
 ```
 Внешняя система платежа → PaymentWebhookService
@@ -33,7 +33,7 @@
   6. UPDATE orders: статус, paid_at или failure_reason, lastPaymentEventId/At
   ↓
 Если PAID:
-  ├─ INSERT ledger (финансовая запись типа PAYMENT_CAPTURED)
+  ├─ INSERT ledger_txns + ledger_entries (проводка PAYMENT_CAPTURED, двойная запись)
   ├─ ENQUEUE job: kind=DELIVER_ORDER payload={orderId, ext_id, generation}
   └─ Финализируй payment_event (статус APPLIED)
   ↓
@@ -41,7 +41,7 @@
   └─ Финализируй payment_event (статус APPLIED)
 
 Если конфликт/дубль/orphan:
-  └─ Финализируй payment_event (статус CONFLICT/ORPHAN/DUPLICATE)
+  └─ Финализируй payment_event (статус CONFLICT/ORPHAN/IGNORED_*)
 ```
 
 ---
@@ -61,7 +61,7 @@ DeliveryService.deliver():
   ↓
 PoolFulfilmentService или SupplierFulfilmentService:
   1. Попытка выдать товар (call к external API или local stub)
-  2. INSERT delivered_attempts (запись попытки)
+  2. INSERT delivery_attempts (запись попытки)
   ↓
 Если успех:
   └─ UPDATE order: status=DELIVERED, deliveredAt
@@ -83,7 +83,8 @@ PoolFulfilmentService или SupplierFulfilmentService:
 | **issued_deliveries** | Запись о выданном заказе (когда, кому выдан)                |
 | **delivery_attempts** | Каждая попытка выдачи + результат                           |
 | **jobs**              | Очередь (PENDING→RUNNING→DONE или DEAD)                     |
-| **ledger**            | Финансовый учет (дебеты/кредиты)                            |
+| **ledger_txns**       | Проводка (kind, idempotency_key)                            |
+| **ledger_entries**    | Ноги проводки (дебет/кредит, signed_minor)                  |
 
 ---
 

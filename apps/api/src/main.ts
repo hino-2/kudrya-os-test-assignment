@@ -30,6 +30,7 @@ function registerProcessGuards(logger: JsonLogger): void {
       ctx: 'Process',
       err: reason,
     });
+    process.exit(1);
   });
 }
 
